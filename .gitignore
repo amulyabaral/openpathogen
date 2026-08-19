@@ -1,0 +1,65 @@
+# OS
+.DS_Store
+
+# Build tools
+emsdk/
+build.sh
+install_emscripten.sh
+
+# Raw data / large files
+*.fastq.gz
+!SRR21386014_sub_1.fastq.gz
+!SRR21386014_sub_2.fastq.gz
+*.fasta
+*.fas.gz
+*.tar.bz2
+
+card-data/
+subsample_test/
+nucleotide_fasta_protein_homolog_model.fasta
+
+# KMA source/build artifacts (only keep .wasm and .js)
+kma/*.c
+kma/*.h
+kma/*.o
+kma/*.a
+kma/*.pdf
+kma/*.gz
+kma/Makefile
+kma/Makefile.wasm
+kma/README.md
+kma/.git/
+kma/.github/
+kma/.idea/
+kma/.gitignore
+kma/conda/
+kma/envs/
+kma/bitbucket-pipelines.yml
+
+# Build docs
+BUILD_STATUS.md
+BUILD_SUCCESS.md
+GETTING_STARTED.md
+
+# Tests
+tests/
+
+# ResFinder DB (only keep phenotypes.txt)
+resfinder_db/*.fsa
+resfinder_db/.git/
+resfinder_db/.gitignore
+resfinder_db/README.md
+resfinder_db/INSTALL.py
+resfinder_db/CHECK-entries.sh
+resfinder_db/VERSION
+resfinder_db/config
+resfinder_db/history.txt
+resfinder_db/notes.txt
+resfinder_db/antibiotic_classes.txt
+resfinder_db/phenotype_panels.txt
+*.crdownload
+
+# Paper & benchmark material kept local only
+/paper/
+/benchmark/
+/openpathogen_short_comms.md

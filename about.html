@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" class="doc-body">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About · openpathogen</title>
+  <link rel="icon" type="image/png" href="logo_dark.png">
+  <link rel="stylesheet" href="css/style.css?v=33">
+  <script data-goatcounter="https://openpathogen.goatcounter.com/count"
+          async src="//gc.zgo.at/count.js"></script>
+</head>
+<body class="doc-body">
+
+<header class="topbar">
+  <a class="brand" href=".">
+    <img src="logo_dark.png" alt="" class="brand-logo">
+    <span class="brand-name">openpathogen</span>
+  </a>
+  <span class="brand-sub">About</span>
+  <nav class="topbar-nav">
+    <a class="topbar-link no-arrow" href="https://github.com/amulyabaral/openpathogen" target="_blank" rel="noopener" aria-label="GitHub repository"><svg class="gh-icon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+    <a class="topbar-link no-arrow" href=".">← Back to app</a>
+  </nav>
+</header>
+
+<main class="doc">
+  <article class="doc-content">
+
+    <section>
+      <h1>What is openpathogen, and how does it work?</h1>
+      <p class="doc-byline">Developed by <a href="https://amulya.no" target="_blank" rel="noopener">Amulya Baral</a></p>
+      <p class="doc-lede">openpathogen is an open-source, privacy-friendly, zero-install pathogen profiling platform.</p>
+      <p>It uses <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a> (read-based gene detection), version 1.5.1, compiled to <a href="https://webassembly.org/" target="_blank" rel="noopener">WebAssembly</a>.</p>
+      <p>All of your data is analyzed locally in your own browser, and does not have to be uploaded to a server anywhere. This makes it fast, private, and safe to use even with sensitive clinical or unpublished sequencing data.</p>
+      <p>Because everything runs client-side, there is no account to create and no server that you have to put your trust on. The only network traffic is the one-time download of the WebAssembly engine and whichever reference database you select.</p>
+      <p>Databases are downloaded once and cached in your browser (IndexedDB), so repeat runs against the same database start instantly. The first run against a large database may take a moment while it downloads.</p>
+
+    </section>
+
+    <section>
+      <h2>Getting started</h2>
+      <ol class="steps">
+        <li>Pick your input type — paired-end, single-end, or Nanopore.</li>
+        <li>Choose the reference database you want to align the reads to.</li>
+        <li>Upload your read file(s) (<code>.fastq</code> or gzipped <code>.fastq.gz</code>), or load the example isolate — <em>S. aureus</em> JKD6159 (<a href="https://www.ebi.ac.uk/ena/browser/view/SRR21386014" target="_blank" rel="noopener">SRR21386014</a>), the Australian CA-MRSA ST93-IV reference. Under <strong>Load example data</strong>, <strong>Small dataset (fast)</strong> loads a ~50&nbsp;MB subsample of the run that is shipped with the app and starts quickly, while <strong>Full sequences</strong> downloads the complete ~570&nbsp;MB public Illumina run from ENA. Either way you should see <em>mecA</em>/<em>blaZ</em> on ResFinder and PVL/<em>hla</em> on VFDB.</li>
+        <li>Hit <strong>Run analysis</strong>. Live progress is streamed into the Logs panel that you can expand any time to watch the KMA command and its output.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Databases for read-based gene detection</h2>
+      <p>Right now, we support these databases:</p>
+      <dl class="defs">
+        <dt><a href="https://cge.food.dtu.dk/services/ResFinder/" target="_blank" rel="noopener">ResFinder 2.6.0</a></dt>
+        <dd>Acquired AMR genes (CGE).</dd>
+        <dt><a href="https://card.mcmaster.ca/" target="_blank" rel="noopener">CARD 4.0.1</a></dt>
+        <dd>Comprehensive Antibiotic Resistance Database, protein homolog model.</dd>
+        <dt><a href="http://www.mgc.ac.cn/VFs/" target="_blank" rel="noopener">VFDB</a></dt>
+        <dd>Virulence Factor Database Set A (core).</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>Some notes</h2>
+      <ul class="tips">
+        <li>Defaults of 80% identity and 80% coverage have been chosen following common reporting thresholds; this does not in any way mean they are absolute. For example, you can lower the identity threshold to recover divergent variants, or lower the coverage threshold for fragmented or low-depth samples.</li>
+        <li>Nanopore mode enables KMA's <code>-bcNano</code> for indel-aware base calling.</li>
+        <li>You can click any detected gene in the results to inspect its coverage, consensus sequence, alignment, and variants.</li>
+        <li>The output bundle includes <code>.res</code>, <code>.aln</code>, <code>.fsa</code>, <code>.frag.gz</code>, <code>.mat.gz</code>, <code>.vcf.gz</code>, and <code>.mapstat</code>.</li>
+        <li>openpathogen needs a modern browser with <code>SharedArrayBuffer</code> support (recent Chrome, Firefox, Edge, or Safari).</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Citation</h2>
+      <p>We have a short communication in preparation. Please cite KMA and the relevant database in the meantime:</p>
+      <p class="cite">Clausen PTLC, Aarestrup FM, Lund O. <em>Rapid and precise alignment of raw reads against redundant databases with KMA.</em> BMC Bioinformatics. 2018;19:307. <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">doi:10.1186/s12859-018-2336-6</a></p>
+    </section>
+
+  </article>
+</main>
+
+</body>
+</html>
