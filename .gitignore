@@ -64,10 +64,9 @@ resfinder_db/phenotype_panels.txt
 /benchmark/
 /openpathogen_short_comms.md
 
-# hv build artifacts
-hv/target/
-hv/genomes_ref/
-
-# Cloudflare deploy output
+# Cloudflare deployment — local machine only, not published
 dist/
 .wrangler/
+DEPLOY.md
+wrangler.toml
+scripts/

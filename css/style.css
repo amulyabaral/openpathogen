@@ -241,13 +241,6 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
   .run-row .btn-primary{width:100%;justify-content:center}
 }
 
-/* ── HV species profile ── */
-
-.hv-summary {
-  margin: 14px 2px;
-  color: var(--fg-muted, #5a6b7a);
-  line-height: 1.5;
-}
 .res-table td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;

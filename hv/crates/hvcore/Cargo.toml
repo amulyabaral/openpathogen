@@ -1,8 +1,0 @@
-[package]
-name = "hvcore"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Hypervector metagenome profiling core: encoding, reference matrix, deconvolution, statistics. No I/O, no dependencies."
-
-[dependencies]

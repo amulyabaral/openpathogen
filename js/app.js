@@ -300,20 +300,15 @@ async function doRun() {
       await doRunSimple(files);
     } else {
       const dbKey = document.getElementById('db-select').value;
-      if (dbKey === 'hv_profile') {
-        // research tool, not exposed in the UI — kept for future work
-        await runHvProfile(files);
-      } else {
-        const config = {
-          id_threshold: parseInt(document.getElementById('slider-id').value) / 100,
-          mrc: parseInt(document.getElementById('slider-cov').value) / 100,
-          nanopore: state.readType === 'nanopore',
-        };
-        const result = await runAnalysis(files, dbKey, config);
-        result.files = result.files || {};
-        result.files['.log'] = { data: term.text(), binary: false };
-        renderResults(result);
-      }
+      const config = {
+        id_threshold: parseInt(document.getElementById('slider-id').value) / 100,
+        mrc: parseInt(document.getElementById('slider-cov').value) / 100,
+        nanopore: state.readType === 'nanopore',
+      };
+      const result = await runAnalysis(files, dbKey, config);
+      result.files = result.files || {};
+      result.files['.log'] = { data: term.text(), binary: false };
+      renderResults(result);
     }
     document.getElementById('workspace').classList.add('show-results');
   } catch (err) {
@@ -460,115 +455,6 @@ function fmtInt(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(0) + 'k';
   return String(n);
-}
-
-// ── HV species profile ──
-//
-// Runs the hypervector profiler worker: stream FASTQ → 32 kB fingerprint →
-// deconvolution against the int8 reference matrix. Same file slots and
-// example data as KMA; reads never leave the worker.
-
-function runHvProfile(files) {
-  return new Promise((resolve, reject) => {
-    const workerUrl = new URL('./hv-worker.js?v=2', import.meta.url);
-    const worker = new Worker(workerUrl, { type: 'module' });
-    let lastProgressAt = 0;
-    term.push('HV profiler: encoding reads into a 32 kB hypervector, then', 'info');
-    term.push('deconvolving against the pathogen reference matrix (species-level, β).', 'info');
-    worker.onmessage = (e) => {
-      const m = e.data;
-      if (m.type === 'log') {
-        term.push(m.text, 'info');
-      } else if (m.type === 'progress') {
-        const now = performance.now();
-        if (now - lastProgressAt > 400) {
-          lastProgressAt = now;
-          term.push(
-            `encoded ${(m.bytes / 1e6).toFixed(0)} MB · ${Math.round(m.reads / 1e3)}k reads · ` +
-            `${Math.round(m.events / 1e3)}k events · ${m.mbps.toFixed(0)} MB/s`,
-            'progress'
-          );
-        }
-      } else if (m.type === 'done') {
-        worker.terminate();
-        renderHvResults(m);
-        resolve(m);
-      } else if (m.type === 'error') {
-        worker.terminate();
-        reject(new Error(m.message));
-      }
-    };
-    worker.onerror = (err) => {
-      worker.terminate();
-      reject(new Error(err.message || 'worker failed'));
-    };
-    worker.postMessage({
-      type: 'run',
-      files,
-      dbUrl: new URL('../hvprof/hv_patho_v1.hvd', location.href).href,
-      tsvUrl: new URL('../hvprof/hv_patho_v1.tsv', location.href).href,
-    });
-  });
-}
-
-function renderHvResults(result) {
-  const area = document.getElementById('results');
-  const h = result.report;
-  const taxa = result.taxa || [];
-
-  const rows = taxa.map((t) => {
-    const m = t.meta || { name: `row ${t.idx}`, genus: '' };
-    const flags = [];
-    if (t.flags & 256) flags.push('species complex');
-    if (t.flags & 2) flags.push('host');
-    return `
-      <tr>
-        <td title="${esc(m.id || '')}">${esc(m.name)}</td>
-        <td>${esc(m.genus || '')}</td>
-        <td class="num">${t.coverage.toFixed(2)}×</td>
-        <td class="num">${(100 * t.dnaFrac).toFixed(2)}%</td>
-        <td class="num">${t.z.toFixed(1)}</td>
-        <td class="num">${fmtQ(t.q)}</td>
-        <td>${flags.map(esc).join(', ')}</td>
-      </tr>`;
-  }).join('');
-
-  area.innerHTML = `
-    <div class="result-header ok">
-      <strong>Species profile complete</strong>
-      <span class="result-meta">HV profiler · ${result.secs.toFixed(1)}s · ${(result.totalBytes / 1e6).toFixed(0)} MB read</span>
-    </div>
-    <div class="downloads">
-      <button class="btn btn-primary" data-hv-fp>Download fingerprint (.hvf, ${(result.fingerprint.byteLength / 1024).toFixed(0)} kB)</button>
-    </div>
-    <p class="hv-summary">
-      ${(100 * (1 - h.unexplained)).toFixed(1)}% of the sample's k-mer mass is explained by known
-      species; <strong>${(100 * h.unexplained).toFixed(1)}% is uncharacterised</strong>
-      (novel organisms or low-identity relatives).
-      QC spike-in z = ${h.spikeZ.toFixed(2)} (null ✓ when |z| &lt; 3).
-    </p>
-    ${taxa.length ? `
-    <div class="table-wrap"><table class="res-table">
-      <thead><tr>
-        <th>Organism</th><th>Genus</th><th>Coverage</th><th>DNA fraction</th><th>z</th><th>q</th><th>Notes</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>` : '<p class="empty">No reference species detected above threshold.</p>'}`;
-
-  area.querySelector('[data-hv-fp]')?.addEventListener('click', () => {
-    const blob = new Blob([result.fingerprint], { type: 'application/octet-stream' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'sample.hvf';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  });
-}
-
-function fmtQ(q) {
-  if (q < 1e-200) return '<10⁻²⁰⁰';
-  if (q < 1e-3) return q.toExponential(1);
-  return q.toPrecision(2);
 }
 
 // Show a running indicator (spinner in the run button + indeterminate progress
