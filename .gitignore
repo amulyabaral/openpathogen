@@ -8,8 +8,6 @@ install_emscripten.sh
 
 # Raw data / large files
 *.fastq.gz
-!SRR21386014_sub_1.fastq.gz
-!SRR21386014_sub_2.fastq.gz
 *.fasta
 *.fas.gz
 *.tar.bz2

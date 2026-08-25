@@ -1,8 +1,8 @@
 /* assets.js — fetch helpers for static assets that may exceed Cloudflare
- * Pages' 25 MiB per-file cap (the VFDB index and the subsampled example
- * dataset). scripts/build-dist.sh ships such files as `<name>.part00`,
- * `<name>.part01`, … ; these helpers fetch the parts and reassemble them
- * in order, so nothing elsewhere in the app needs to know about the cap.
+ * Pages' 25 MiB per-file cap (the VFDB index). scripts/build-dist.sh ships
+ * such files as `<name>.part00`, `<name>.part01`, … ; these helpers fetch
+ * the parts and reassemble them in order, so nothing elsewhere in the app
+ * needs to know about the cap.
  *
  * The plain URL is tried first, so local dev against the repo root
  * (unsplit files) keeps working unchanged.

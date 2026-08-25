@@ -4,8 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>About · openpathogen</title>
-  <link rel="icon" type="image/png" href="logo_dark.png">
-  <link rel="stylesheet" href="css/style.css?v=33">
+  <meta name="description" content="The KMA aligner compiled to WebAssembly runs in your browser with curated ResFinder, CARD and VFDB databases. No installation, no upload.">
+  <link rel="canonical" href="https://openpathogen.org/about.html">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="css/style.css?v=35">
   <script data-goatcounter="https://openpathogen.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
 </head>
@@ -13,7 +15,7 @@
 
 <header class="topbar">
   <a class="brand" href=".">
-    <img src="logo_dark.png" alt="" class="brand-logo">
+    <img src="openpathogen_logo.png" alt="" class="brand-logo">
     <span class="brand-name">openpathogen</span>
   </a>
   <span class="brand-sub">About</span>
@@ -40,10 +42,9 @@
     <section>
       <h2>Getting started</h2>
       <ol class="steps">
-        <li>Pick your input type — paired-end, single-end, or Nanopore.</li>
-        <li>Choose the reference database you want to align the reads to.</li>
-        <li>Upload your read file(s) (<code>.fastq</code> or gzipped <code>.fastq.gz</code>), or load the example isolate — <em>S. aureus</em> JKD6159 (<a href="https://www.ebi.ac.uk/ena/browser/view/SRR21386014" target="_blank" rel="noopener">SRR21386014</a>), the Australian CA-MRSA ST93-IV reference. Under <strong>Load example data</strong>, <strong>Small dataset (fast)</strong> loads a ~50&nbsp;MB subsample of the run that is shipped with the app and starts quickly, while <strong>Full sequences</strong> downloads the complete ~570&nbsp;MB public Illumina run from ENA. Either way you should see <em>mecA</em>/<em>blaZ</em> on ResFinder and PVL/<em>hla</em> on VFDB.</li>
-        <li>Hit <strong>Run analysis</strong>. Live progress is streamed into the Logs panel that you can expand any time to watch the KMA command and its output.</li>
+        <li>Choose your input type: paired-end, single-end, or Nanopore. In Advanced mode you also choose the reference database; Simple mode runs all of them.</li>
+        <li>Select your read file(s) (<code>.fastq</code> or gzipped <code>.fastq.gz</code>), or load the example isolate — <em>S. aureus</em> USA300_TCH1516 (<a href="https://www.ebi.ac.uk/ena/browser/view/SRR10341524" target="_blank" rel="noopener">SRR10341524</a>), a 48 MB MiSeq run of the community-associated MRSA reference strain, downloaded straight from ENA and cached in your browser. You should see <em>mecA</em>, <em>blaZ</em> plus aminoglycoside and macrolide genes on ResFinder, and PVL/<em>hla</em> on VFDB. You can also fetch any public run by its accession (SRR…, ERR…, DRR…) with <strong>Or fetch a public run</strong>; the organism and read type are detected automatically, and files are limited to 1 GB each.</li>
+        <li>Start the analysis. Live progress is streamed into the Logs panel, which you can expand at any time to watch the KMA command and its output.</li>
       </ol>
     </section>
 

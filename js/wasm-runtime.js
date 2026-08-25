@@ -1,5 +1,5 @@
 import { getCachedDBFile, cacheDBFile } from './db.js';
-import { fetchAsset } from './assets.js';
+import { fetchAssetWithProgress } from './assets.js';
 
 const DATABASES = {
   resfinder: {
@@ -70,28 +70,75 @@ export function isReady() {
 
 // ── Database bytes (IndexedDB cache or network) ──
 //
+// Index files are fetched same-origin first (local dev, and any deployment
+// that still ships databases/), then from Zenodo — free, DOI-cited hosting
+// with CORS-enabled downloads (the /api/records/…/files/<name>/content form;
+// the /records/…/files/ page path lacks CORS). Verified with MD5 against the
+// local indexes. To publish new indexes, run scripts/deploy-indexes-zenodo.sh
+// and update this record URL (build-dist.sh then stops shipping databases/).
+const INDEX_BASE = 'https://zenodo.org/api/records/22102687/files/';
+
+const DB_SHORT_NAMES = {
+  resfinder: 'kma_index_resfinder_2_6_0',
+  card_homolog: 'kma_index_card_4_0_1_homolog',
+  vfdb_core: 'VFDB_setA_nt.fas.gz',
+};
+
 // Returns a fresh {ext: Uint8Array} map each call; the buffers are transferred
 // to the run worker, so we always re-read from the IndexedDB cache rather than
 // holding hundreds of MB resident on the main thread.
+
+async function fetchDbFile(db, ext, onProgress) {
+  const cacheKey = db.prefix + ext;
+  let data = await getCachedDBFile(cacheKey);
+  if (data && data.length) return { data, fromCache: true };
+  try {
+    data = await fetchAssetWithProgress(db.prefix + ext, 0, onProgress);
+  } catch (err) {
+    if (!INDEX_BASE) throw err;
+    data = await fetchAssetWithProgress(INDEX_BASE + DB_SHORT_NAMES[db.shortName] + ext + '/content', 0, onProgress);
+  }
+  if (data.length) await cacheDBFile(cacheKey, data); // never cache a failed (empty) load
+  return { data, fromCache: false };
+}
 
 async function loadDatabaseBytes(db) {
   log(`Loading ${db.displayName}...`, 'info');
   const bytesByExt = {};
   for (const ext of DB_FILES) {
-    const cacheKey = db.prefix + ext;
-    let data = await getCachedDBFile(cacheKey);
-    if (data && data.length) {
-      log(`${cacheKey} (cached)`, 'info');
-    } else {
-      // Files over the Pages 25 MiB cap (VFDB .comp.b) resolve to chunks — see assets.js
-      data = await fetchAsset(db.prefix + ext);
-      log(`${cacheKey} (${formatBytes(data.length)})`, 'info');
-      if (data.length) await cacheDBFile(cacheKey, data); // never cache a failed (empty) load
-    }
+    const { data, fromCache } = await fetchDbFile(db, ext);
+    log(`${db.prefix + ext}${fromCache ? ' (cached)' : ` (${formatBytes(data.length)})`}`, 'info');
     bytesByExt[ext] = data;
   }
   log(`${db.displayName} ready`, 'ok');
   return bytesByExt;
+}
+
+// ── Index preloading (↓ buttons) ──
+
+export async function isDatabaseCached(key) {
+  const db = DATABASES[key];
+  if (!db) return false;
+  for (const ext of DB_FILES) {
+    const data = await getCachedDBFile(db.prefix + ext);
+    if (!data || !data.length) return false;
+  }
+  return true;
+}
+
+// Downloads and caches every file of a database ahead of a run. onProgress is
+// called with (bytesGot, bytesTotal) of the file currently transferring, and
+// onFile with (index, total) as each file starts.
+export async function preloadDatabase(key, onProgress, onFile) {
+  const db = DATABASES[key];
+  if (!db) throw new Error(`Unknown database: ${key}`);
+  log(`Preloading ${db.displayName}...`, 'info');
+  for (let i = 0; i < DB_FILES.length; i++) {
+    onFile?.(i, DB_FILES.length);
+    const { data, fromCache } = await fetchDbFile(db, DB_FILES[i], onProgress);
+    log(`${db.prefix + DB_FILES[i]}${fromCache ? ' (cached)' : ` (${formatBytes(data.length)})`}`, 'info');
+  }
+  log(`${db.displayName} preloaded`, 'ok');
 }
 
 // ── Run single analysis ──

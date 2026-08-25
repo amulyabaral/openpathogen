@@ -1,8 +1,8 @@
-/* comprehensive.js — one-click pipeline: fastp QC/trim → KMA against
- * ResFinder + CARD + VFDB.
+/* comprehensive.js — configurable pipeline: optional fastp QC/trim → KMA
+ * against any subset of ResFinder + CARD + VFDB.
  *
  * Reuses the production runAnalysis() path verbatim for each database, so
- * the simple mode can never drift from what advanced mode runs.
+ * the pipeline can never drift from what a single-database run does.
  */
 
 import { runAnalysis } from './wasm-runtime.js';
@@ -39,33 +39,43 @@ export function runFastp(files, { paired, nanopore } = {}) {
 let fastpLog = null;
 export function setFastpLog(fn) { fastpLog = fn; }
 
-export async function runComprehensive(files, readType, { onStep } = {}) {
+export async function runComprehensive(files, readType, { onStep, runQc = true, dbKeys, thresholds } = {}) {
   const paired = readType === 'paired';
   const nanopore = readType === 'nanopore';
-  const step = (i, n, text) => onStep?.(i, n, text);
+  const dbs = dbKeys?.length
+    ? COMPREHENSIVE_DBS.filter(d => dbKeys.includes(d.key))
+    : COMPREHENSIVE_DBS;
+  const total = dbs.length + (runQc ? 1 : 0);
+  let stepNo = 0;
+  const step = (text) => onStep?.(++stepNo, total, text);
 
-  // ── Step 1: QC + trim ──
-  step(1, 4, 'Quality control (fastp)…');
+  // ── Optional QC + trim ──
   let qc = null;
   let analysisFiles = files;
-  try {
-    const out = await runFastp(files, { paired, nanopore });
-    qc = out.report;
-    if (out.reads && out.reads.length) analysisFiles = out.reads;
-  } catch (err) {
-    qc = null; // QC is best-effort: proceed with original reads
-    fastpLog?.(`fastp failed (${err.message}); continuing with unfiltered reads`, 'warn');
+  if (runQc) {
+    step('Quality control (fastp)…');
+    try {
+      const out = await runFastp(files, { paired, nanopore });
+      qc = out.report;
+      if (out.reads && out.reads.length) analysisFiles = out.reads;
+    } catch (err) {
+      qc = null; // QC is best-effort: proceed with original reads
+      fastpLog?.(`fastp failed (${err.message}); continuing with unfiltered reads`, 'warn');
+    }
   }
 
-  // ── Steps 2–4: gene databases on the filtered reads ──
-  const config = { id_threshold: 0.90, mrc: 0.60, nanopore };
+  // ── Gene databases on the (optionally filtered) reads ──
+  const config = {
+    id_threshold: thresholds?.id_threshold ?? 0.90,
+    mrc: thresholds?.mrc ?? 0.60,
+    nanopore,
+  };
   const results = [];
-  for (let i = 0; i < COMPREHENSIVE_DBS.length; i++) {
-    const db = COMPREHENSIVE_DBS[i];
-    step(2 + i, 4, db.label + '…');
+  for (const db of dbs) {
+    step(db.label + '…');
     results.push(await runAnalysis(analysisFiles, db.key, config));
   }
-  step(4, 4, 'Done');
+  onStep?.(total, total, 'Done');
   return { qc, results, usedFiltered: analysisFiles !== files };
 }
 

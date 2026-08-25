@@ -1,15 +1,15 @@
-import { initWasm, runAnalysis, setLogCallback, formatBytes } from './wasm-runtime.js';
+import { initWasm, setLogCallback, formatBytes, isDatabaseCached, preloadDatabase } from './wasm-runtime.js';
 import { loadPhenotypesDB, parseResFile } from './resfinder-db.js';
 import { cacheDBFile, getCachedDBFile } from './db.js';
 import { openGeneViewer } from './gene-view.js';
 import { fetchAssetWithProgress } from './assets.js';
+import { lookupRun } from './fetch-run.js';
 import {
-  runComprehensive, summariseQc, qcVerdict, COMPREHENSIVE_DBS,
+  runComprehensive, setFastpLog, summariseQc, qcVerdict, COMPREHENSIVE_DBS,
 } from './comprehensive.js';
 
 const state = {
   readType: 'paired',
-  mode: localStorage.getItem('op-mode') || 'simple',
   files: { r1: null, r2: null },
   wasmReady: false,
   running: false,
@@ -43,14 +43,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupReadTypeToggle();
   setupUploadSlots();
   setupSliders();
-  setupModeToggle();
+  setupRunOptions();
   document.getElementById('btn-run').addEventListener('click', doRun);
-  document.getElementById('btn-example').addEventListener('click', () => loadExample('sub'));
-  document.getElementById('btn-example-full').addEventListener('click', () => loadExample('full'));
+  document.getElementById('btn-example').addEventListener('click', () => loadExample());
+  document.getElementById('btn-fetch-run').addEventListener('click', doFetchRun);
+
+  // Per-database preload buttons (↓): pull an index into the IndexedDB cache
+  // ahead of a run. Shows ✓ once every file of that database is cached.
+  document.querySelectorAll('.db-load').forEach((btn) => {
+    btn.addEventListener('click', () => preloadDb(btn));
+    refreshDbLoadBtn(btn);
+  });
+  document.getElementById('run-accession').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doFetchRun();
+  });
   document.getElementById('btn-back').addEventListener('click', () => {
     document.getElementById('workspace').classList.remove('show-results');
   });
-  document.getElementById('db-select').addEventListener('change', applyMode);
   setupLogsToggle();
   applyReadType();
 
@@ -93,34 +102,20 @@ function expandLogs() {
   document.getElementById('terminal-toggle').setAttribute('aria-expanded', 'true');
 }
 
-// ── Mode (Simple / Advanced) ──
+// ── Run options (fastp + database selection) ──
 //
-// Simple (default): one click → fastp QC → ResFinder + CARD + VFDB →
-// plain-language synthesis. Advanced: the original single-database UI.
+// No modes: fastp QC is an independent toggle and any subset of the
+// databases can be selected. Defaults: ResFinder only, fastp off.
 
-function setupModeToggle() {
-  document.querySelectorAll('#mode-toggle .seg-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.mode = btn.dataset.mode;
-      localStorage.setItem('op-mode', state.mode);
-      document.querySelectorAll('#mode-toggle .seg-btn').forEach(b =>
-        b.classList.toggle('active', b === btn));
-      applyMode();
-    });
-  });
-  document.querySelectorAll('#mode-toggle .seg-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.mode === state.mode));
-  applyMode();
+function selectedDbs() {
+  return [...document.querySelectorAll('.db-check:checked')].map(cb => cb.value);
 }
 
-function applyMode() {
-  const simple = state.mode === 'simple';
-  const kmaOpts = document.getElementById('kma-options');
-  if (kmaOpts) kmaOpts.style.display = simple ? 'none' : '';
-  // the hint explains both modes, so it stays visible in either
-  if (!state.running) {
-    document.getElementById('btn-run').textContent = simple ? 'Analyze sample' : 'Run analysis';
-  }
+function setupRunOptions() {
+  document.getElementById('opt-fastp').addEventListener('change', updateRunButton);
+  document.querySelectorAll('.db-check').forEach(cb => {
+    cb.addEventListener('change', updateRunButton);
+  });
 }
 
 // ── Read type ──
@@ -147,7 +142,17 @@ function applyReadType() {
     setSlotName('r2', 'No file');
     slotR1Title.textContent = state.readType === 'nanopore' ? 'Nanopore reads' : 'Reads';
   }
+  document.querySelectorAll('#read-type .seg-btn').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.classList.contains('active'))));
   updateRunButton();
+}
+
+function setReadType(type) {
+  state.readType = type;
+  document.querySelectorAll('#read-type .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.type === type);
+  });
+  applyReadType();
 }
 
 // ── Uploads ──
@@ -188,81 +193,79 @@ function setupSliders() {
 
 function updateRunButton() {
   const btn = document.getElementById('btn-run');
+  const hint = document.getElementById('run-hint');
   const haveR1 = !!state.files.r1;
   const needR2 = state.readType === 'paired';
   const haveR2 = !!state.files.r2;
-  const ready = state.wasmReady && !state.running && haveR1 && (!needR2 || haveR2);
+  const haveDb = selectedDbs().length > 0;
+  const ready = state.wasmReady && !state.running && haveDb && haveR1 && (!needR2 || haveR2);
   btn.disabled = !ready;
+  btn.title = haveDb ? '' : 'Select at least one database.';
+  if (hint) {
+    if (ready || state.running || !state.wasmReady) {
+      hint.hidden = true;
+    } else if (!haveDb) {
+      hint.hidden = false;
+      hint.textContent = 'Select at least one database to run the analysis.';
+    } else if (!haveR1) {
+      hint.hidden = false;
+      hint.textContent = 'Load reads to begin — choose files, fetch a public run, or load the example data.';
+    } else {
+      hint.hidden = false;
+      hint.textContent = 'Add the reverse reads (R2) file to run paired-end analysis.';
+    }
+  }
 }
 
 // ── Example data ──
 //
-// S. aureus JKD6159 — Australian CA-MRSA ST93-IV (Chua et al. 2010/2011);
-// Illumina PE resequencing SRR21386014 (Wick et al. 2023).
-//   sub  — 300 000 read pairs (~51 MB) shipped with the app for a fast demo.
-//   full — the complete public run (~570 MB), fetched from ENA on demand.
+// S. aureus USA300_TCH1516 — the community-associated MRSA (ST8) reference
+// strain, PVL-positive. Illumina MiSeq run SRR10341524 (~48 MB, ENA study
+// PRJNA579343), fetched from ENA on demand and cached in IndexedDB, so
+// nothing is served from this site.
 const EXAMPLE = {
-  accession: 'SRR21386014',
-  organism: 'S. aureus JKD6159',
-  sub: {
-    note: '300 000 read-pair subsample of SRR21386014 (~51 MB), shipped with the app',
-    files: [
-      { slot: 'r1', name: 'SRR21386014_sub_1.fastq.gz', bytes: 26214400, url: 'SRR21386014_sub_1.fastq.gz' },
-      { slot: 'r2', name: 'SRR21386014_sub_2.fastq.gz', bytes: 27262976, url: 'SRR21386014_sub_2.fastq.gz' },
-    ],
-  },
-  full: {
-    note: 'full SRR21386014 run from ENA (~3.4 million PE reads, ~570 MB gzipped)',
-    files: [
-      {
-        slot: 'r1', name: 'SRR21386014_1.fastq.gz', bytes: 292999499,
-        url: 'https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR213/014/SRR21386014/SRR21386014_1.fastq.gz',
-      },
-      {
-        slot: 'r2', name: 'SRR21386014_2.fastq.gz', bytes: 303106337,
-        url: 'https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR213/014/SRR21386014/SRR21386014_2.fastq.gz',
-      },
-    ],
-  },
+  accession: 'SRR10341524',
+  organism: 'S. aureus USA300_TCH1516',
+  study: 'PRJNA579343',
+  note: '48 MB MiSeq run, downloaded from ENA and cached in your browser',
+  files: [
+    {
+      slot: 'r1', name: 'SRR10341524_1.fastq.gz', bytes: 22326358,
+      url: 'https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/024/SRR10341524/SRR10341524_1.fastq.gz',
+    },
+    {
+      slot: 'r2', name: 'SRR10341524_2.fastq.gz', bytes: 26024204,
+      url: 'https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR103/024/SRR10341524/SRR10341524_2.fastq.gz',
+    },
+  ],
 };
 
-async function loadExample(kind) {
-  const specSet = EXAMPLE[kind];
-  if (!specSet) return;
-  const btn = document.getElementById(kind === 'full' ? 'btn-example-full' : 'btn-example');
-  const other = document.getElementById(kind === 'full' ? 'btn-example' : 'btn-example-full');
+async function loadExample() {
+  const btn = document.getElementById('btn-example');
   if (btn.disabled) return;
   btn.disabled = true;
-  other.disabled = true;
   const original = btn.textContent;
-  const fromEna = kind === 'full';
   try {
-    document.querySelectorAll('#read-type .seg-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.type === 'paired');
-    });
-    state.readType = 'paired';
-    applyReadType();
+    setReadType('paired');
     term.push(`Example isolate: ${EXAMPLE.organism} · ENA/SRA ${EXAMPLE.accession}`, 'info');
-    term.push(specSet.note, 'info');
-    term.push('Wick et al. Microbiol Resour Announc. 2023;12:e01129-22.  doi:10.1128/mra.01129-22', 'info');
+    term.push(EXAMPLE.note, 'info');
+    term.push('USA300_TCH1516: community-associated MRSA reference strain (ST8), PVL-positive.', 'info');
 
-    for (const spec of specSet.files) {
+    for (const spec of EXAMPLE.files) {
       const cacheKey = 'example:' + spec.name;
-      let data = fromEna ? await getCachedDBFile(cacheKey) : null;
-      if (data) {
+      let data = await getCachedDBFile(cacheKey);
+      if (data && data.byteLength) {
         term.push(`${spec.name} (cached, ${formatBytes(data.byteLength)})`, 'info');
-        btn.textContent = `Cached ${spec.name}`;
+        btn.textContent = 'Example (cached)';
       } else {
-        term.push(fromEna ? `Downloading ${spec.name} from ENA…` : `Loading ${spec.name}…`, 'progress');
+        term.push(`Downloading ${spec.name} from ENA…`, 'progress');
         data = await fetchAssetWithProgress(spec.url, spec.bytes, (got, total) => {
           const pct = total ? Math.min(100, Math.round(100 * got / total)) : 0;
-          btn.textContent = `${spec.name}  ${formatBytes(got)}${total ? ' / ' + formatBytes(total) : ''}  (${pct}%)`;
+          btn.textContent = `Example ↓ ${pct}%`;
         });
         term.push(`${spec.name} (${formatBytes(data.byteLength)})`, 'ok');
-        if (fromEna) {
-          try { await cacheDBFile(cacheKey, data); } catch (_) {
-            term.push('Could not cache the FASTQ in IndexedDB; next load will re-download.', 'warn');
-          }
+        try { await cacheDBFile(cacheKey, data); } catch (_) {
+          term.push('Could not cache the FASTQ in IndexedDB; next load will re-download.', 'warn');
         }
       }
       const file = new File([data], spec.name, { type: 'application/gzip' });
@@ -270,15 +273,120 @@ async function loadExample(kind) {
       setSlotName(spec.slot, `${file.name} (${formatBytes(file.size)})`);
     }
     updateRunButton();
-    term.push('Ready. Choose ResFinder (mecA, blaZ) or VFDB (PVL, hla, ica…) and run.', 'ok');
+    term.push('Ready. Choose ResFinder (mecA, blaZ, aph(3\')-III…) or VFDB (PVL, hla, ica…) and run.', 'ok');
   } catch (err) {
     term.push('Failed to load example: ' + err.message, 'error');
     expandLogs();
-    if (fromEna) term.push('ENA must be reachable from this browser (CORS). Try the ~50 MB subsample, or upload your own FASTQ.', 'info');
+    term.push('ENA must be reachable from this browser (CORS). Try again later, or upload your own FASTQ.', 'info');
   } finally {
     btn.textContent = original;
     btn.disabled = false;
-    other.disabled = false;
+  }
+}
+
+// ── Index preloading (↓ buttons in the Databases row) ──
+
+async function refreshDbLoadBtn(btn) {
+  const cached = await isDatabaseCached(btn.dataset.db);
+  btn.textContent = cached ? '✓' : '↓';
+  btn.classList.toggle('ok', cached);
+  if (cached) btn.title = 'Index already cached in this browser';
+}
+
+async function preloadDb(btn) {
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  try {
+    await preloadDatabase(btn.dataset.db,
+      (got, total) => {
+        btn.textContent = total ? `${Math.min(100, Math.round(100 * got / total))}%` : '…';
+      },
+      (i, n) => { btn.textContent = `${i + 1}/${n}`; });
+    await refreshDbLoadBtn(btn);
+  } catch (err) {
+    term.push('Could not preload index: ' + err.message, 'error');
+    btn.textContent = original;
+    btn.classList.remove('ok');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── Fetch a public run from ENA ──
+//
+// Any SRR/ERR/DRR run accession. ENA is queried first for run metadata
+// (organism, platform, layout, file sizes); the read type is set from that
+// metadata and the run is described to the user before the FASTQs download.
+// Files are capped at 1 GB each (see fetch-run.js). Downloaded runs are
+// cached in IndexedDB, so fetching the same run again is instant.
+
+const PLATFORM_LABELS = {
+  ILLUMINA: 'Illumina',
+  OXFORD_NANOPORE: 'Oxford Nanopore',
+  ION_TORRENT: 'Ion Torrent',
+  PACIFIC_BIOSCIENCES: 'PacBio',
+  LS454: '454',
+};
+
+async function doFetchRun() {
+  if (state.running) return;
+  const input = document.getElementById('run-accession');
+  const btn = document.getElementById('btn-fetch-run');
+  const metaEl = document.getElementById('run-meta');
+  const acc = input.value.trim();
+  if (!acc) {
+    term.push('Enter a run accession, for example SRR10341524.', 'warn');
+    input.focus();
+    return;
+  }
+  if (btn.disabled) return;
+  btn.disabled = true;
+  const original = btn.textContent;
+  metaEl.hidden = true;
+  try {
+    term.push(`Looking up run ${acc} at ENA…`, 'info');
+    const run = await lookupRun(acc);
+    const platform = PLATFORM_LABELS[run.platform] || run.platform || 'unknown platform';
+    const kind = run.readType === 'nanopore'
+      ? platform
+      : `${run.layout === 'paired' ? 'paired-end' : 'single-end'} ${platform}`;
+    metaEl.hidden = false;
+    metaEl.innerHTML = `<b>${esc(run.organism)}</b> · ${esc([kind, run.instrument].filter(Boolean).join(', '))} · ${formatBytes(run.totalBytes)}`;
+    term.push(`Detected: ${[run.organism, kind, run.instrument].filter(Boolean).join(' · ')} (${formatBytes(run.totalBytes)})`, 'ok');
+
+    setReadType(run.readType);
+    term.push(`Downloading ${run.files.length} FASTQ file${run.files.length === 1 ? '' : 's'} from ENA…`, 'info');
+    for (let i = 0; i < run.files.length; i++) {
+      const spec = run.files[i];
+      const slot = (run.layout === 'paired' && i === 1) ? 'r2' : 'r1';
+      const cacheKey = 'run:' + spec.name;
+      let data = await getCachedDBFile(cacheKey);
+      if (data && data.byteLength) {
+        term.push(`${spec.name} (cached, ${formatBytes(data.byteLength)})`, 'info');
+      } else {
+        data = await fetchAssetWithProgress(spec.url, spec.bytes, (got, total) => {
+          const pct = total ? Math.min(100, Math.round(100 * got / total)) : 0;
+          btn.textContent = `${spec.name}  ${formatBytes(got)} / ${formatBytes(total)}  (${pct}%)`;
+        });
+        term.push(`${spec.name} (${formatBytes(data.byteLength)})`, 'ok');
+        try { await cacheDBFile(cacheKey, data); } catch (_) {
+          term.push('Could not cache this file in the browser; fetching it again will re-download it.', 'warn');
+        }
+      }
+      const file = new File([data], spec.name, { type: 'application/gzip' });
+      state.files[slot] = file;
+      setSlotName(slot, `${file.name} (${formatBytes(file.size)})`);
+    }
+    updateRunButton();
+    term.push('Files ready. Start the analysis.', 'ok');
+  } catch (err) {
+    term.push('Could not fetch run: ' + err.message, 'error');
+    expandLogs();
+    metaEl.hidden = true;
+  } finally {
+    btn.textContent = original;
+    btn.disabled = false;
   }
 }
 
@@ -296,20 +404,22 @@ async function doRun() {
   if (state.readType === 'paired' && state.files.r2) files.push(state.files.r2);
 
   try {
-    if (state.mode === 'simple') {
-      await doRunSimple(files);
-    } else {
-      const dbKey = document.getElementById('db-select').value;
-      const config = {
-        id_threshold: parseInt(document.getElementById('slider-id').value) / 100,
-        mrc: parseInt(document.getElementById('slider-cov').value) / 100,
-        nanopore: state.readType === 'nanopore',
-      };
-      const result = await runAnalysis(files, dbKey, config);
-      result.files = result.files || {};
-      result.files['.log'] = { data: term.text(), binary: false };
-      renderResults(result);
-    }
+    const statusText = document.querySelector('#run-status .run-status-text');
+    const onStep = (i, n, text) => {
+      if (statusText) statusText.textContent = `Step ${i} of ${n}: ${text}`;
+      term.push(`[${i}/${n}] ${text}`, 'progress');
+    };
+    setFastpLog((t) => term.push(t, 'info'));
+    const runQc = document.getElementById('opt-fastp').checked;
+    const thresholds = {
+      id_threshold: parseInt(document.getElementById('slider-id').value) / 100,
+      mrc: parseInt(document.getElementById('slider-cov').value) / 100,
+    };
+    const result = await runComprehensive(files, state.readType, {
+      onStep, runQc, dbKeys: selectedDbs(), thresholds,
+    });
+    if (statusText) statusText.textContent = 'Analyzing… this may take a moment.';
+    renderComprehensive(result, { runQc });
     document.getElementById('workspace').classList.add('show-results');
   } catch (err) {
     term.push('Error: ' + err.message, 'error');
@@ -320,31 +430,21 @@ async function doRun() {
   }
 }
 
-// ── Simple mode: the comprehensive pipeline ──
+const DB_SHORT = { resfinder: 'ResFinder', card_homolog: 'CARD', vfdb_core: 'VFDB' };
 
-async function doRunSimple(files) {
-  const statusText = document.querySelector('#run-status .run-status-text');
-  const onStep = (i, n, text) => {
-    if (statusText) statusText.textContent = `Step ${i} of ${n}: ${text}`;
-    term.push(`[${i}/${n}] ${text}`, 'progress');
-  };
-  const { setFastpLog } = await import('./comprehensive.js');
-  setFastpLog((t) => term.push(t, 'info'));
-  const result = await runComprehensive(files, state.readType, { onStep });
-  if (statusText) statusText.textContent = 'Analyzing… this may take a moment.';
-  renderComprehensive(result);
-}
-
-function renderComprehensive({ qc, results }) {
+function renderComprehensive({ qc, results }, { runQc } = {}) {
   const area = document.getElementById('results');
   const metrics = summariseQc(qc);
   const verdict = qcVerdict(metrics);
 
   const anyOk = results.some(r => r.exitCode === 0);
+  const parts = [];
+  if (runQc) parts.push('fastp QC');
+  results.forEach(r => parts.push(DB_SHORT[r.database] || r.dbLabel || r.database));
   let html = `
     <div class="result-header ${anyOk ? 'ok' : 'error'}">
       <strong>${anyOk ? 'Analysis complete' : 'Analysis failed'}</strong>
-      <span class="result-meta">Simple mode · QC + ResFinder + CARD + VFDB</span>
+      <span class="result-meta">${parts.join(' + ')}</span>
     </div>`;
 
   // ── Downloads first: one zip with everything ──
@@ -354,23 +454,25 @@ function renderComprehensive({ qc, results }) {
       <p class="dl-nudge">The ZIP has everything from this run: the full result tables, the quality report and the run log.</p>
     </div>`;
 
-  // ── QC card ──
-  html += `
-    <section class="card">
-      <div class="card-title comp-title"><span>Quality control</span><span class="comp-src">fastp</span></div>
-      <div class="card-body">
-        ${metrics ? `
-        <div class="qc-grid">
-          <div class="qc-cell"><span class="qc-val">${fmtInt(metrics.rawReads)}</span><span class="qc-key">reads in</span></div>
-          <div class="qc-cell"><span class="qc-val">${(100 * metrics.retained).toFixed(1)}%</span><span class="qc-key">retained after trimming</span></div>
-          <div class="qc-cell"><span class="qc-val">${(100 * (metrics.q30After ?? 0)).toFixed(1)}%</span><span class="qc-key">Q30 (after)</span></div>
-          <div class="qc-cell"><span class="qc-val">${(100 * (metrics.gcBefore ?? 0)).toFixed(1)}%</span><span class="qc-key">GC content</span></div>
-          ${metrics.duplication != null ? `<div class="qc-cell"><span class="qc-val">${(100 * metrics.duplication).toFixed(1)}%</span><span class="qc-key">duplication</span></div>` : ''}
+  // ── QC card (only when fastp was part of the run) ──
+  if (runQc) {
+    html += `
+      <section class="card">
+        <div class="card-title comp-title"><span>Quality control</span><span class="comp-src">fastp</span></div>
+        <div class="card-body">
+          ${metrics ? `
+          <div class="qc-grid">
+            <div class="qc-cell"><span class="qc-val">${fmtInt(metrics.rawReads)}</span><span class="qc-key">reads in</span></div>
+            <div class="qc-cell"><span class="qc-val">${(100 * metrics.retained).toFixed(1)}%</span><span class="qc-key">retained after trimming</span></div>
+            <div class="qc-cell"><span class="qc-val">${(100 * (metrics.q30After ?? 0)).toFixed(1)}%</span><span class="qc-key">Q30 (after)</span></div>
+            <div class="qc-cell"><span class="qc-val">${(100 * (metrics.gcBefore ?? 0)).toFixed(1)}%</span><span class="qc-key">GC content</span></div>
+            ${metrics.duplication != null ? `<div class="qc-cell"><span class="qc-val">${(100 * metrics.duplication).toFixed(1)}%</span><span class="qc-key">duplication</span></div>` : ''}
+          </div>
+          <p class="qc-verdict qc-${verdict.tone}">${esc(verdict.text)}</p>` : `
+          <p class="qc-verdict qc-warn">${esc(verdict.text)}</p>`}
         </div>
-        <p class="qc-verdict qc-${verdict.tone}">${esc(verdict.text)}</p>` : `
-        <p class="qc-verdict qc-warn">${esc(verdict.text)}</p>`}
-      </div>
-    </section>`;
+      </section>`;
+  }
 
   // ── One section per database, reusing the advanced-mode table ──
   results.forEach((r, i) => {
@@ -464,38 +566,17 @@ function setRunning(on) {
   const btn = document.getElementById('btn-run');
   const status = document.getElementById('run-status');
   document.getElementById('btn-example').disabled = on;
-  document.getElementById('btn-example-full').disabled = on;
+  document.getElementById('btn-fetch-run').disabled = on;
   if (on) {
     btn.innerHTML = '<span class="spinner"></span>Running…';
     status.hidden = false;
   } else {
-    btn.textContent = state.mode === 'simple' ? 'Analyze sample' : 'Run analysis';
+    btn.textContent = 'Analyze sample';
     status.hidden = true;
   }
 }
 
 // ── Results ──
-
-function renderResults(result) {
-  const area = document.getElementById('results');
-  const ok = result.exitCode === 0;
-
-  let html = `
-    <div class="result-header ${ok ? 'ok' : 'error'}">
-      <strong>${ok ? 'Analysis complete' : 'Analysis failed'}</strong>
-      <span class="result-meta">${esc(result.sampleName)} · ${esc(result.dbLabel)} · ${result.elapsed}s</span>
-    </div>`;
-
-  html += renderDownloads(result);
-
-  if (ok && result.resTable) html += renderResTable(result.resTable);
-  else if (ok) html += '<p class="empty">No resistance or virulence genes detected.</p>';
-  area.innerHTML = html;
-  bindDownloads(area, result);
-  bindSort(area);
-  bindColumnResize(area);
-  bindGeneViewer(area, result);
-}
 
 // Open the per-gene detail viewer when a result row is clicked.
 function bindGeneViewer(area, result) {
@@ -602,38 +683,6 @@ function bindColumnResize(area) {
       };
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
-    });
-  });
-}
-
-function renderDownloads(result) {
-  const entries = Object.entries(result.files);
-  if (!entries.length) return '';
-  let html = '<div class="downloads"><button class="btn btn-primary" data-zip>Download all (ZIP)</button>';
-  for (const [ext] of entries) html += `<button class="btn btn-secondary" data-ext="${esc(ext)}">${esc(ext)}</button>`;
-  return html + '</div>';
-}
-
-function bindDownloads(area, result) {
-  area.querySelector('[data-zip]')?.addEventListener('click', () => {
-    const enc = new TextEncoder();
-    const zip = {};
-    for (const [ext, info] of Object.entries(result.files)) {
-      const fname = result.sampleName + '_' + result.database + ext;
-      zip[fname] = info.binary
-        ? (info.data instanceof Uint8Array ? info.data : new Uint8Array(info.data))
-        : enc.encode(info.data);
-    }
-    download(new Blob([window.fflate.zipSync(zip)], { type: 'application/zip' }), result.sampleName + '_results.zip');
-  });
-  area.querySelectorAll('[data-ext]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ext = btn.dataset.ext;
-      const info = result.files[ext];
-      if (!info) return;
-      const fname = result.sampleName + '_' + result.database + ext;
-      const d = info.binary ? (info.data instanceof Uint8Array ? info.data : new Uint8Array(info.data)) : info.data;
-      download(new Blob([d], { type: info.binary ? 'application/octet-stream' : 'text/plain' }), fname);
     });
   });
 }

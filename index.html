@@ -8,9 +8,42 @@
        works on any static host (local python server, Render, GitHub Pages).
        Reloads the page once on first visit to apply them. Must run first. -->
   <script src="coi-serviceworker.min.js"></script>
-  <title>openpathogen: pathogen profiling in your browser</title>
-  <link rel="icon" type="image/png" href="logo_dark.png">
-  <link rel="stylesheet" href="css/style.css?v=37">
+  <title>openpathogen: AMR &amp; virulence gene detection in your browser</title>
+  <meta name="description" content="Detect antimicrobial resistance (AMR) and virulence genes from FASTQ reads directly in your browser. Open source, no installation, no data upload.">
+  <link rel="canonical" href="https://openpathogen.org/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="openpathogen">
+  <meta property="og:title" content="openpathogen: AMR &amp; virulence gene detection in your browser">
+  <meta property="og:description" content="Detect antimicrobial resistance (AMR) and virulence genes from FASTQ reads directly in your browser. Open source, no installation, no data upload.">
+  <meta property="og:url" content="https://openpathogen.org/">
+  <meta property="og:image" content="https://openpathogen.org/og.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="openpathogen: AMR &amp; virulence gene detection in your browser">
+  <meta name="twitter:description" content="Detect antimicrobial resistance (AMR) and virulence genes from FASTQ reads directly in your browser. Open source, no installation, no data upload.">
+  <meta name="twitter:image" content="https://openpathogen.org/og.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="css/style.css?v=52">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "openpathogen",
+    "url": "https://openpathogen.org/",
+    "applicationCategory": "ScienceApplication",
+    "operatingSystem": "Any (web browser)",
+    "browserRequirements": "Requires a modern browser with WebAssembly support",
+    "offers": { "@type": "Offer", "price": "0" },
+    "description": "Open-source web platform that detects antimicrobial resistance and virulence genes in sequencing reads, entirely in the browser with no installation and no data upload.",
+    "featureList": [
+      "fastp quality control",
+      "KMA read alignment",
+      "AMR gene detection (ResFinder, CARD)",
+      "Virulence gene detection (VFDB)",
+      "Interactive results table",
+      "Downloadable full output"
+    ]
+  }
+  </script>
   <script data-goatcounter="https://openpathogen.goatcounter.com/count"
           crossorigin="anonymous"
           async src="//gc.zgo.at/count.js"></script>
@@ -19,11 +52,12 @@
 
 <header class="topbar">
   <a class="brand" href=".">
-    <img src="logo_dark.png" alt="" class="brand-logo">
+    <img src="openpathogen_logo.png" alt="" class="brand-logo">
     <span class="brand-name">openpathogen</span>
   </a>
   <span class="brand-sub">Open-source, privacy-preserving and zero-install pathogen profiling in the web browser</span>
   <nav class="topbar-nav">
+    <a class="topbar-link no-arrow" href="education.html" title="Guided lesson: screen a real MRSA isolate for resistance and virulence genes.">Learn</a>
     <a class="topbar-link no-arrow" href="https://github.com/amulyabaral/openpathogen" target="_blank" rel="noopener" aria-label="GitHub repository"><svg class="gh-icon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
     <a class="topbar-link no-arrow" href="about.html" target="_blank" rel="noopener">About</a>
   </nav>
@@ -36,8 +70,7 @@
     <div class="pane pane-config">
 
     <div class="hero">
-      <h1 class="hero-title">From raw reads to resistance and virulence.</h1>
-      <p class="lede"> Just load your FASTQ files, select database, and run analyses; no uploads, no installs, no accounts and no queueing. openpathogen uses your own computer hardware (with WebAssembly)! </p>
+      <p class="lede">openpathogen is a free, open-source platform that screens FASTQ reads for antimicrobial resistance (AMR) and virulence genes using the KMA aligner compiled to WebAssembly. It runs entirely in your own browser and does not need any installation or account creation, and your sequence data never leaves your computer!</p>
     </div>
 
     <section class="card" id="run">
@@ -45,27 +78,12 @@
 
       <div class="row">
         <span class="label">Choose input type</span>
-        <div class="seg" id="read-type">
-          <button class="seg-btn active" data-type="paired">Illumina paired</button>
-          <button class="seg-btn" data-type="single">Single-end</button>
-          <button class="seg-btn" data-type="nanopore">Nanopore</button>
+        <div class="seg" id="read-type" role="group" aria-label="Input type">
+          <button class="seg-btn active" data-type="paired" aria-pressed="true">Illumina paired</button>
+          <button class="seg-btn" data-type="single" aria-pressed="false">Single-end</button>
+          <button class="seg-btn" data-type="nanopore" aria-pressed="false">Nanopore</button>
         </div>
       </div>
-
-      <div class="row">
-        <span class="label">Mode</span>
-        <div class="seg" id="mode-toggle">
-          <button class="seg-btn active" data-mode="simple" title="Runs the full pipeline: fastp quality control, then screening against ResFinder, CARD and VFDB.">Simple</button>
-          <button class="seg-btn" data-mode="advanced" title="Choose a single database and set KMA thresholds yourself.">Advanced</button>
-        </div>
-      </div>
-
-      <p class="mode-hint" id="mode-hint">
-        Simple mode runs the whole pipeline for you: fastp checks read quality, then your reads are
-        screened for resistance genes (ResFinder and CARD) and virulence genes (VFDB). Each result is
-        shown in the same table as Advanced mode. Advanced mode lets you pick a single database and
-        set the KMA thresholds yourself.
-      </p>
 
       <div class="upload-grid" id="upload-grid">
         <div class="slot" data-slot="r1">
@@ -86,44 +104,70 @@
         </div>
       </div>
 
-      <div id="kma-options">
+      <div class="row fetch-row">
+        <span class="label">Or fetch a public run</span>
+        <input type="text" id="run-accession" placeholder="Run accession (SRR…, ERR…, DRR…)" spellcheck="false" autocomplete="off" enterkeyhint="go">
+        <button class="btn" id="btn-fetch-run" type="button" title="Fetch sequencing reads from a public run. ENA is queried for organism, platform and layout, and the read type is set automatically. Files are limited to 1 GB each.">Fetch reads</button>
+        <button class="btn" id="btn-example" type="button" title="Load the example isolate: S. aureus USA300_TCH1516 (SRR10341524), a 48 MB community-associated MRSA run downloaded from ENA and cached in your browser.">Load example (SRR10341524)</button>
+      </div>
+      <div class="fetch-meta" id="run-meta" hidden></div>
+
       <div class="row">
-        <label class="label" for="db-select">Choose database:</label>
-        <select id="db-select">
-          <optgroup label="AMR genes">
-            <option value="resfinder" selected>ResFinder 2.6.0</option>
-            <option value="card_homolog">CARD 4.0.1: Protein Homolog</option>
-          </optgroup>
-          <optgroup label="Virulence factors">
-            <option value="vfdb_core">VFDB Set A: core</option>
-          </optgroup>
-        </select>
+        <span class="label">Quality control</span>
+        <div class="opt-group">
+          <label class="check-row">
+            <input type="checkbox" id="opt-fastp">
+            <span>Run fastp before alignment</span>
+          </label>
+          <p class="opt-note">Trims adapters and filters low-quality reads before alignment. Recommended.</p>
+        </div>
       </div>
 
+      <div class="row">
+        <span class="label">Databases</span>
+        <div class="opt-group">
+          <div class="db-checks" id="db-checks">
+            <label class="check-row">
+              <input type="checkbox" class="db-check" value="resfinder" checked>
+              <span>ResFinder 2.6.0<span class="db-desc">acquired resistance genes</span></span>
+              <button class="db-load" data-db="resfinder" type="button" title="Preload the ResFinder index into the browser cache (12 MB)">↓</button>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="db-check" value="card_homolog">
+              <span>CARD 4.0.1<span class="db-desc">protein homolog model</span></span>
+              <button class="db-load" data-db="card_homolog" type="button" title="Preload the CARD index into the browser cache (24 MB)">↓</button>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" class="db-check" value="vfdb_core">
+              <span>VFDB set A<span class="db-desc">core virulence factors</span></span>
+              <button class="db-load" data-db="vfdb_core" type="button" title="Preload the VFDB index into the browser cache (78 MB)">↓</button>
+            </label>
+          </div>
+          <p class="opt-note">Each selected database is screened against the reads in turn with KMA. Use the ↓ button to preload an index ahead of time — it is then cached in your browser.</p>
+        </div>
+      </div>
+
+      <div id="kma-options">
       <div class="row slider-row">
         <label class="label" for="slider-id">Min identity</label>
-        <input type="range" id="slider-id" min="0" max="100" step="1" value="80">
-        <span class="slider-val"><span id="slider-id-val">80</span>%</span>
+        <input type="range" id="slider-id" min="0" max="100" step="1" value="90">
+        <span class="slider-val"><span id="slider-id-val">90</span>%</span>
       </div>
       <div class="row slider-row">
         <label class="label" for="slider-cov">Min coverage</label>
-        <input type="range" id="slider-cov" min="0" max="100" step="1" value="80">
-        <span class="slider-val"><span id="slider-cov-val">80</span>%</span>
+        <input type="range" id="slider-cov" min="0" max="100" step="1" value="60">
+        <span class="slider-val"><span id="slider-cov-val">60</span>%</span>
       </div>
       </div><!-- /kma-options -->
 
       <div class="run-row">
-        <div class="example-btns">
-          <span class="example-label">Load example data<span class="example-sub">S. aureus JKD6159 (SRR21386014)</span></span>
-          <button class="btn" id="btn-example" type="button" title="S. aureus JKD6159 (SRR21386014): a small ~50 MB subsample shipped with the app for a fast demo.">Small dataset (fast)</button>
-          <button class="btn" id="btn-example-full" type="button" title="S. aureus JKD6159 (SRR21386014): the complete ~570 MB Illumina run fetched from ENA.">Full sequences</button>
-        </div>
         <button class="btn btn-primary" id="btn-run" disabled>Analyze sample</button>
       </div>
+      <p class="opt-note" id="run-hint" hidden></p>
 
       <div class="run-status" id="run-status" hidden>
         <div class="run-progress"><div class="run-progress-bar"></div></div>
-        <span class="run-status-text">Analyzing… this may take a moment. Expand the Logs panel below to follow live progress.</span>
+        <span class="run-status-text">Analysis in progress. The Logs panel below shows the progress of each step.</span>
       </div>
 
       </div>
@@ -152,7 +196,7 @@
 </div>
 
 <script src="js/vendor/fflate.min.js"></script>
-<script type="module" src="js/app.js?v=39"></script>
+<script type="module" src="js/app.js?v=47"></script>
 
 </body>
 </html>
