@@ -80,13 +80,13 @@ async function loadDatabaseBytes(db) {
   for (const ext of DB_FILES) {
     const cacheKey = db.prefix + ext;
     let data = await getCachedDBFile(cacheKey);
-    if (data) {
+    if (data && data.length) {
       log(`${cacheKey} (cached)`, 'info');
     } else {
-      // Files over the Pages 25 MiB cap (VFDB .comp.b) resolve to R2 — see assets.js
+      // Files over the Pages 25 MiB cap (VFDB .comp.b) resolve to chunks — see assets.js
       data = await fetchAsset(db.prefix + ext);
       log(`${cacheKey} (${formatBytes(data.length)})`, 'info');
-      await cacheDBFile(cacheKey, data);
+      if (data.length) await cacheDBFile(cacheKey, data); // never cache a failed (empty) load
     }
     bytesByExt[ext] = data;
   }

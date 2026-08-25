@@ -21,10 +21,13 @@ function partPath(path, i) {
 }
 
 function concat(parts) {
-  const total = parts.reduce((n, p) => n + p.length, 0);
+  // tolerate both Uint8Array and ArrayBuffer inputs — ArrayBuffer has no
+  // .length (only .byteLength), which silently produces an empty result
+  const bufs = parts.map(p => (p instanceof Uint8Array ? p : new Uint8Array(p)));
+  const total = bufs.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(total);
   let offset = 0;
-  for (const p of parts) { out.set(p, offset); offset += p.length; }
+  for (const p of bufs) { out.set(p, offset); offset += p.length; }
   return out;
 }
 
