@@ -44,9 +44,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupUploadSlots();
   setupSliders();
   setupRunOptions();
-  document.getElementById('btn-run').addEventListener('click', doRun);
-  document.getElementById('btn-example').addEventListener('click', () => loadExample());
-  document.getElementById('btn-fetch-run').addEventListener('click', doFetchRun);
+  // Optional-element wiring is null-safe: a stale cached page (or a cached
+  // script against new markup) must never abort the rest of the init.
+  document.getElementById('btn-run')?.addEventListener('click', doRun);
+  document.getElementById('btn-example')?.addEventListener('click', () => loadExample());
+  document.getElementById('btn-fetch-run')?.addEventListener('click', doFetchRun);
 
   // Per-database preload buttons (↓): pull an index into the IndexedDB cache
   // ahead of a run. Shows ✓ once every file of that database is cached.
@@ -54,10 +56,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.addEventListener('click', () => preloadDb(btn));
     refreshDbLoadBtn(btn);
   });
-  document.getElementById('run-accession').addEventListener('keydown', (e) => {
+  document.getElementById('run-accession')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') doFetchRun();
   });
-  document.getElementById('btn-back').addEventListener('click', () => {
+  document.getElementById('btn-back')?.addEventListener('click', () => {
     document.getElementById('workspace').classList.remove('show-results');
   });
   setupLogsToggle();
@@ -565,8 +567,10 @@ function fmtInt(n) {
 function setRunning(on) {
   const btn = document.getElementById('btn-run');
   const status = document.getElementById('run-status');
-  document.getElementById('btn-example').disabled = on;
-  document.getElementById('btn-fetch-run').disabled = on;
+  const exampleBtn = document.getElementById('btn-example');
+  if (exampleBtn) exampleBtn.disabled = on;
+  const fetchBtn = document.getElementById('btn-fetch-run');
+  if (fetchBtn) fetchBtn.disabled = on;
   if (on) {
     btn.innerHTML = '<span class="spinner"></span>Running…';
     status.hidden = false;
