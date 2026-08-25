@@ -1,4 +1,5 @@
 import { getCachedDBFile, cacheDBFile } from './db.js';
+import { fetchAsset } from './assets.js';
 
 const DATABASES = {
   resfinder: {
@@ -82,10 +83,8 @@ async function loadDatabaseBytes(db) {
     if (data) {
       log(`${cacheKey} (cached)`, 'info');
     } else {
-      const url = db.prefix + ext;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`Failed to fetch ${url}: HTTP ${resp.status}`);
-      data = new Uint8Array(await resp.arrayBuffer());
+      // Files over the Pages 25 MiB cap (VFDB .comp.b) resolve to R2 — see assets.js
+      data = await fetchAsset(db.prefix + ext);
       log(`${cacheKey} (${formatBytes(data.length)})`, 'info');
       await cacheDBFile(cacheKey, data);
     }

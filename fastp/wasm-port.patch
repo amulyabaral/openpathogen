@@ -1,0 +1,199 @@
+diff --git a/src/duplicate.cpp b/src/duplicate.cpp
+index 4d01958..a6a4cb4 100644
+--- a/src/duplicate.cpp
++++ b/src/duplicate.cpp
+@@ -8,9 +8,18 @@ const int PRIME_ARRAY_LEN = 1<<9;
+ Duplicate::Duplicate(Options* opt) {
+     mOptions = opt;
+ 
++#ifdef __EMSCRIPTEN__
++    // wasm32: size_t is 32-bit, so (1<<29)<<3 overflows to zero (the exact
++    // cause of a "remainder by zero" trap in statRead), and a 2 GiB dup
++    // buffer cannot live in a browser heap. 64 MiB keeps the estimate
++    // accurate at our read caps. See fastp/WASM_BUILD.md.
++    mBufLenInBytes = 1UL << 26;
++    mBufNum = 2;
++#else
+     // 1G mem required
+     mBufLenInBytes = 1L <<29;
+     mBufNum = 2;
++#endif
+ 
+     // if deduplication is enabled, we double the buffer size and buffer number to make more accurate deduplication
+     // this will take 4x memory (4G)
+@@ -21,7 +30,7 @@ Duplicate::Duplicate(Options* opt) {
+ 
+     mOffsetMask = PRIME_ARRAY_LEN * mBufNum - 1;
+ 
+-    mBufLenInBits = mBufLenInBytes << 3;
++    mBufLenInBits = (uint64)mBufLenInBytes << 3;
+     mDupBuf = new uint8[mBufLenInBytes * mBufNum];
+     memset(mDupBuf, 0, sizeof(uint8) * mBufLenInBytes * mBufNum);
+ 
+diff --git a/src/peprocessor.cpp b/src/peprocessor.cpp
+index f42459e..fe9591e 100644
+--- a/src/peprocessor.cpp
++++ b/src/peprocessor.cpp
+@@ -119,6 +119,32 @@ bool PairEndProcessor::process(){
+         initOutput();
+ 
+     initPackRepository();
++#ifdef __EMSCRIPTEN__
++    // WASM build: no real threads — the pipeline stages run back-to-back.
++    // This is safe because the browser wrapper caps processing with
++    // --reads_to_process below PACK_IN_MEM_LIMIT packs, so producerTask()
++    // never blocks on the bounded pack queue or the writer buffers.
++    // See fastp/WASM_BUILD.md in the openpathogen repo.
++    producerTask();
++
++    ThreadConfig** configs = new ThreadConfig*[mOptions->thread];
++    for(int t=0; t<mOptions->thread; t++){
++        configs[t] = new ThreadConfig(mOptions, t, true);
++        initConfig(configs[t]);
++    }
++
++    for(int t=0; t<mOptions->thread; t++){
++        consumerTask(configs[t]);
++    }
++
++    if(mLeftWriter) writeTask(mLeftWriter);
++    if(mRightWriter) writeTask(mRightWriter);
++    if(mUnpairedLeftWriter) writeTask(mUnpairedLeftWriter);
++    if(mUnpairedRightWriter) writeTask(mUnpairedRightWriter);
++    if(mMergedWriter) writeTask(mMergedWriter);
++    if(mFailedWriter) writeTask(mFailedWriter);
++    if(mOverlappedWriter) writeTask(mOverlappedWriter);
++#else
+     std::thread producer(std::bind(&PairEndProcessor::producerTask, this));
+ 
+     //TODO: get the correct cycles
+@@ -177,6 +203,7 @@ bool PairEndProcessor::process(){
+         if(overlappedWriterThread)
+             overlappedWriterThread->join();
+     }
++#endif
+ 
+     if(mOptions->verbose)
+         loginfo("start to generate reports\n");
+@@ -259,8 +286,10 @@ bool PairEndProcessor::process(){
+ 
+     // clean up
+     for(int t=0; t<mOptions->thread; t++){
++#ifndef __EMSCRIPTEN__
+         delete threads[t];
+         threads[t] = NULL;
++#endif
+         delete configs[t];
+         configs[t] = NULL;
+     }
+@@ -271,23 +300,39 @@ bool PairEndProcessor::process(){
+     delete finalPostStats2;
+     delete finalFilterResult;
+ 
++#ifndef __EMSCRIPTEN__
+     delete[] threads;
++#endif
+     delete[] configs;
+ 
++#ifndef __EMSCRIPTEN__
+     if(leftWriterThread)
+         delete leftWriterThread;
++#endif
++#ifndef __EMSCRIPTEN__
+     if(rightWriterThread)
+         delete rightWriterThread;
++#endif
++#ifndef __EMSCRIPTEN__
+     if(unpairedLeftWriterThread)
+         delete unpairedLeftWriterThread;
++#endif
++#ifndef __EMSCRIPTEN__
+     if(unpairedRightWriterThread)
+         delete unpairedRightWriterThread;
++#endif
++#ifndef __EMSCRIPTEN__
+     if(mergedWriterThread)
+         delete mergedWriterThread;
++#endif
++#ifndef __EMSCRIPTEN__
+     if(failedWriterThread)
+         delete failedWriterThread;
++#endif
++#ifndef __EMSCRIPTEN__
+     if(overlappedWriterThread)
+         delete overlappedWriterThread;
++#endif
+ 
+     if(!mOptions->split.enabled)
+         closeOutput();
+diff --git a/src/seprocessor.cpp b/src/seprocessor.cpp
+index 11564d2..88599e6 100644
+--- a/src/seprocessor.cpp
++++ b/src/seprocessor.cpp
+@@ -69,6 +69,27 @@ bool SingleEndProcessor::process(){
+         initOutput();
+ 
+     initPackRepository();
++#ifdef __EMSCRIPTEN__
++    // WASM build: no real threads — stages run back-to-back; safe because
++    // the wrapper caps processing with --reads_to_process below
++    // PACK_IN_MEM_LIMIT packs. See fastp/WASM_BUILD.md.
++    producerTask();
++
++    ThreadConfig** configs = new ThreadConfig*[mOptions->thread];
++    for(int t=0; t<mOptions->thread; t++){
++        configs[t] = new ThreadConfig(mOptions, t, false);
++        initConfig(configs[t]);
++    }
++
++    for(int t=0; t<mOptions->thread; t++){
++        consumerTask(configs[t]);
++    }
++
++    if(mLeftWriter)
++        writeTask(mLeftWriter);
++    if(mFailedWriter)
++        writeTask(mFailedWriter);
++#else
+     std::thread producer(std::bind(&SingleEndProcessor::producerTask, this));
+ 
+     //TODO: get the correct cycles
+@@ -102,6 +123,7 @@ bool SingleEndProcessor::process(){
+         if(failedWriterThread)
+             failedWriterThread->join();
+     }
++#endif
+ 
+     if(mOptions->verbose)
+         loginfo("start to generate reports\n");
+@@ -154,8 +176,10 @@ bool SingleEndProcessor::process(){
+ 
+     // clean up
+     for(int t=0; t<mOptions->thread; t++){
++#ifndef __EMSCRIPTEN__
+         delete threads[t];
+         threads[t] = NULL;
++#endif
+         delete configs[t];
+         configs[t] = NULL;
+     }
+@@ -164,13 +188,19 @@ bool SingleEndProcessor::process(){
+     delete finalPostStats;
+     delete finalFilterResult;
+ 
++#ifndef __EMSCRIPTEN__
+     delete[] threads;
++#endif
+     delete[] configs;
+ 
++#ifndef __EMSCRIPTEN__
+     if(leftWriterThread)
+         delete leftWriterThread;
++#endif
++#ifndef __EMSCRIPTEN__
+     if(failedWriterThread)
+         delete failedWriterThread;
++#endif
+ 
+     if(!mOptions->split.enabled)
+         closeOutput();

@@ -1,0 +1,9 @@
+<!DOCTYPE html><html><body><pre id="out">loading</pre>
+<script>
+const out = document.getElementById('out');
+const q = new URLSearchParams(location.search);
+const flags = q.get('flags') || '';
+const w = new Worker('test-worker.js');
+w.onmessage = e => { out.textContent += '\n' + (typeof e.data === 'string' ? e.data : JSON.stringify(e.data).slice(0, 400)); };
+w.postMessage({ flags: flags.split(' ').filter(Boolean) });
+</script></body></html>

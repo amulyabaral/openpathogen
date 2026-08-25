@@ -10,8 +10,9 @@
   <script src="coi-serviceworker.min.js"></script>
   <title>openpathogen: pathogen profiling in your browser</title>
   <link rel="icon" type="image/png" href="logo_dark.png">
-  <link rel="stylesheet" href="css/style.css?v=34">
+  <link rel="stylesheet" href="css/style.css?v=37">
   <script data-goatcounter="https://openpathogen.goatcounter.com/count"
+          crossorigin="anonymous"
           async src="//gc.zgo.at/count.js"></script>
 </head>
 <body>
@@ -50,6 +51,21 @@
           <button class="seg-btn" data-type="nanopore">Nanopore</button>
         </div>
       </div>
+
+      <div class="row">
+        <span class="label">Mode</span>
+        <div class="seg" id="mode-toggle">
+          <button class="seg-btn active" data-mode="simple" title="Runs the full pipeline: fastp quality control, then screening against ResFinder, CARD and VFDB.">Simple</button>
+          <button class="seg-btn" data-mode="advanced" title="Choose a single database and set KMA thresholds yourself.">Advanced</button>
+        </div>
+      </div>
+
+      <p class="mode-hint" id="mode-hint">
+        Simple mode runs the whole pipeline for you: fastp checks read quality, then your reads are
+        screened for resistance genes (ResFinder and CARD) and virulence genes (VFDB). Each result is
+        shown in the same table as Advanced mode. Advanced mode lets you pick a single database and
+        set the KMA thresholds yourself.
+      </p>
 
       <div class="upload-grid" id="upload-grid">
         <div class="slot" data-slot="r1">
@@ -102,7 +118,7 @@
           <button class="btn" id="btn-example" type="button" title="S. aureus JKD6159 (SRR21386014): a small ~50 MB subsample shipped with the app for a fast demo.">Small dataset (fast)</button>
           <button class="btn" id="btn-example-full" type="button" title="S. aureus JKD6159 (SRR21386014): the complete ~570 MB Illumina run fetched from ENA.">Full sequences</button>
         </div>
-        <button class="btn btn-primary" id="btn-run" disabled>Run analysis</button>
+        <button class="btn btn-primary" id="btn-run" disabled>Analyze sample</button>
       </div>
 
       <div class="run-status" id="run-status" hidden>
@@ -136,7 +152,7 @@
 </div>
 
 <script src="js/vendor/fflate.min.js"></script>
-<script type="module" src="js/app.js?v=34"></script>
+<script type="module" src="js/app.js?v=39"></script>
 
 </body>
 </html>

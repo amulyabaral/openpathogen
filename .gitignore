@@ -63,3 +63,11 @@ resfinder_db/phenotype_panels.txt
 /paper/
 /benchmark/
 /openpathogen_short_comms.md
+
+# hv build artifacts
+hv/target/
+hv/genomes_ref/
+
+# Cloudflare deploy output
+dist/
+.wrangler/
