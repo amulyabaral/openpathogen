@@ -1,18 +1,33 @@
 /* fastp-runner.worker.js — QC + adapter/quality trimming via fastp (WASM,
- * built by biowasm, MIT). Loaded as a CLASSIC worker so it can
- * importScripts() the Emscripten glue, like the KMA runner.
+ * wasm64 + pthreads build — see fastp/WASM_BUILD.md). Loaded as a CLASSIC
+ * worker so it can importScripts() the Emscripten glue, like the KMA runner.
  *
- * Job: { type: 'run', files: [File, File?], paired: bool, nanopore: bool }
+ * Job: { type: 'run', files: [File, File?], paired: bool, nanopore: bool,
+ *        options?: object }
  * Posts:
  *   { type:'log', text }                     progress lines
- *   { type:'done', report, reads:[File...], html? }  on success
+ *   { type:'done', report, reads:[File...], html, paired }  on success
  *   { type:'error', message }                on failure
  *
- * The filtered reads come back as File objects so the (already battle-tested)
- * KMA runner can stream them straight into its own MEMFS.
+ * options (all optional; the UI in index.html shows and pre-fills defaults):
+ *   adapterTrim       false → --disable_adapter_trimming
+ *   adapterR1/R2      custom adapter sequences (IUPAC); blank = auto
+ *   qualityFilter     false → --disable_quality_filtering; otherwise filters
+ *                     with qualifiedPhred (15), unqualifiedPercent (40),
+ *                     nBaseLimit (5) — fastp's own defaults
+ *   lengthFilter      false → --disable_length_filtering; otherwise filters
+ *                     with minLength (15) and maxLength (0 = unlimited)
+ *   polyG             'auto' (fastp decides) | 'on' | 'off'
+ *   correction        paired-only overlap base correction (fastp: off)
+ *
+ * The whole sample is processed — the old 400k-read cap of the sequential
+ * wasm32 build is gone. Filtered reads come back as gzip File objects (fastp
+ * gzips outputs whose names end in .gz) so the (already battle-tested) KMA
+ * runner can stream them straight into its own worker unchanged.
  */
 
-const FASTP_JS_URL = new URL('../fastp/fastp.js', self.location.href).href;
+// ?v= busts caches when the build changes (old glue + new wasm must not mix)
+const FASTP_JS_URL = new URL('../fastp/fastp.js?v=wasm64', self.location.href).href;
 const FASTP_DIR_URL = new URL('../fastp/', self.location.href).href;
 
 const post = (msg, transfer) => self.postMessage(msg, transfer || []);
@@ -25,8 +40,11 @@ function loadModule() {
     const Module = {
       noExitRuntime: true,
       locateFile(path) {
-        return FASTP_DIR_URL + path;
+        return FASTP_DIR_URL + path + '?v=wasm64';
       },
+      // pthread workers must spawn from the glue itself, not this runner
+      // script (self.location points at js/, like the KMA runner)
+      mainScriptUrlOrBlob: FASTP_JS_URL,
       print(text) { post({ type: 'log', text: String(text) }); },
       printErr(text) { post({ type: 'log', text: String(text) }); },
       onRuntimeInitialized() { resolve(Module); },
@@ -61,6 +79,111 @@ async function writeFileStreamed(FS, path, file) {
   }
 }
 
+// Adapter sequences: 5–100 IUPAC bases. Returns the cleaned sequence, null
+// for blank, or undefined when invalid (caller warns and falls back to auto).
+const IUPAC_ADAPTER_RE = /^[ACGTURYSWKMBDHVN]{5,100}$/;
+function cleanAdapter(seq) {
+  const s = String(seq || '').replace(/\s+/g, '').toUpperCase();
+  if (!s) return null;
+  return IUPAC_ADAPTER_RE.test(s) ? s : undefined;
+}
+
+function clampInt(v, fallback, lo, hi) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
+}
+
+function buildArgs(inNames, outNames, options, { paired, nanopore }) {
+  const o = options || {};
+  const args = ['--in1', inNames[0]];
+  if (paired) args.push('--in2', inNames[1]);
+  args.push('--out1', outNames[0]);
+  if (paired) args.push('--out2', outNames[1]);
+  args.push(
+    '--json', '/out/report.json', '--html', '/out/report.html',
+    // Single-threaded on purpose: with >1 consumer thread fastp's filtered
+    // output ordering (and thus its bytes) is nondeterministic, and the
+    // proxied MEMFS writes serialise on the runtime thread anyway, so threads
+    // buy no wall-clock win in the browser. --thread 1 keeps every run
+    // byte-reproducible — the native-vs-WASM validation standard.
+    '--thread', '1',
+    // progress lines every 1M reads on big samples
+    '--verbose');
+
+  if (nanopore) {
+    // fastp is Illumina-oriented; for ONT we only want honest statistics,
+    // not trimming — pass reads through untouched. User options don't apply.
+    args.push('--disable_adapter_trimming', '--disable_quality_filtering',
+              '--disable_trim_poly_g');
+    return args;
+  }
+
+  // ── Adapter trimming ──
+  if (o.adapterTrim === false) {
+    args.push('--disable_adapter_trimming');
+  } else {
+    const a1 = cleanAdapter(o.adapterR1);
+    if (a1 === undefined) {
+      post({ type: 'log', text: 'Ignoring adapter R1: expected 5–100 IUPAC bases (A C G T U R Y S W K M B D H V N); using auto-detection instead.' });
+    }
+    const a2 = paired ? cleanAdapter(o.adapterR2) : null;
+    if (a2 === undefined) {
+      post({ type: 'log', text: 'Ignoring adapter R2: expected 5–100 IUPAC bases (A C G T U R Y S W K M B D H V N); using auto-detection instead.' });
+    }
+    if (a1) args.push('--adapter_sequence', a1);
+    if (a2) args.push('--adapter_sequence_r2', a2);
+    // An explicit sequence is an explicit choice — only auto-detect when the
+    // user left both fields blank.
+    if (paired && !a1 && !a2) args.push('--detect_adapter_for_pe');
+  }
+
+  // ── Quality filtering (on by default, with fastp's thresholds — the UI
+  // pre-fills the same values; opt out to keep every trimmed read) ──
+  if (o.qualityFilter === false) {
+    args.push('--disable_quality_filtering');
+  } else {
+    args.push('--qualified_quality_phred', String(clampInt(o.qualifiedPhred, 15, 1, 40)),
+              '--unqualified_percent_limit', String(clampInt(o.unqualifiedPercent, 40, 0, 100)),
+              '--n_base_limit', String(clampInt(o.nBaseLimit, 5, 0, 50)));
+  }
+
+  // ── Length filtering (on by default, min 15 bp, no upper limit) ──
+  if (o.lengthFilter === false) {
+    args.push('--disable_length_filtering');
+  } else {
+    args.push('--length_required', String(clampInt(o.minLength, 15, 1, 1000)));
+    const maxLen = clampInt(o.maxLength, 0, 0, 100000);
+    if (maxLen > 0) args.push('--length_limit', String(maxLen));
+  }
+
+  // ── Poly-G tails (two-color chemistry: NextSeq/NovaSeq) ──
+  if (o.polyG === 'on') args.push('--trim_poly_g');
+  else if (o.polyG === 'off') args.push('--disable_trim_poly_g');
+
+  // ── Overlap-based base correction (paired only) ──
+  if (paired && o.correction) args.push('--correction');
+
+  return args;
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Run fastp via the wasm_wrapper entry point: fastp_run spawns a pthread that
+// runs fastp's native threaded pipeline; the runtime thread must stay in this
+// event loop to service Emscripten's proxied FS calls, so completion is
+// observed by polling the wrapper's state machine.
+async function runFastp(Module, args) {
+  Module.ccall('fastp_run', 'number', ['string'], [args.join(' ')]);
+  for (;;) {
+    await sleep(100);
+    const state = (() => {
+      try { return Module.ccall('fastp_state', 'number'); } catch (_) { return 2; }
+    })();
+    if (state !== 2) continue;
+    return Module.ccall('fastp_code', 'number');
+  }
+}
+
 self.onmessage = async (e) => {
   const job = e.data;
   if (!job || job.type !== 'run') return;
@@ -80,43 +203,15 @@ self.onmessage = async (e) => {
     }
     const inNames = job.files.map((f, i) =>
       `/in/r${i + 1}.fastq${/\.gz$/i.test(f.name || '') ? '.gz' : ''}`);
+    // .gz names → fastp writes gzipped outputs, keeping full-sample output
+    // memory manageable in MEMFS
+    const outNames = paired ? ['/out/filtered_1.fastq.gz', '/out/filtered_2.fastq.gz']
+                            : ['/out/filtered.fastq.gz'];
 
-    const args = [];
-    if (paired) {
-      args.push('--in1', inNames[0], '--in2', inNames[1],
-                '--out1', '/out/filtered_1.fastq', '--out2', '/out/filtered_2.fastq',
-                '--detect_adapter_for_pe');
-    } else {
-      args.push('--in1', inNames[0], '--out1', '/out/filtered.fastq');
-    }
-    args.push('--json', '/out/report.json', '--html', '/out/report.html',
-              '--thread', '1',
-              // keep every read that survives trimming — KMA thresholds
-              // govern gene calls, not host-side length filters
-              '--disable_length_filtering', '--unqualified_percent_limit', '100',
-              // cap below PACK_IN_MEM_LIMIT packs: required by the
-              // sequential (no-threads) WASM build — see fastp/WASM_BUILD.md.
-              // QC statistics on the first 400k reads are unchanged to
-              // any practical precision.
-              '--reads_to_process', '400000');
-    if (job.nanopore) {
-      // fastp is Illumina-oriented; for ONT we only want honest statistics,
-      // not trimming — pass reads through untouched.
-      args.push('--disable_adapter_trimming', '--disable_quality_filtering',
-                '--disable_trim_poly_g');
-    }
+    const args = buildArgs(inNames, outNames, job.options, { paired, nanopore: !!job.nanopore });
 
     post({ type: 'log', text: `$ fastp ${args.join(' ')}` });
-    let exitCode = 0;
-    try {
-      exitCode = Module.callMain(args);
-    } catch (err) {
-      if (err && (err.name === 'ExitStatus' || typeof err.status === 'number')) {
-        exitCode = err.status || 0;
-      } else {
-        throw err;
-      }
-    }
+    const exitCode = await runFastp(Module, args);
     if (exitCode !== 0) throw new Error(`fastp exited with code ${exitCode}`);
 
     const reportRaw = FS.readFile('/out/report.json', { encoding: 'utf8' });
@@ -124,15 +219,13 @@ self.onmessage = async (e) => {
 
     const reads = [];
     const transfer = [];
-    const outNames = paired ? ['filtered_1.fastq', 'filtered_2.fastq']
-                            : ['filtered.fastq'];
     for (const name of outNames) {
       let data;
       try {
-        data = FS.readFile('/out/' + name);
+        data = FS.readFile('/out/' + name.split('/').pop());
       } catch (_) { continue; }
       if (!data || !data.length) continue;
-      reads.push(new File([data], name, { type: 'text/plain' }));
+      reads.push(new File([data], name.split('/').pop(), { type: 'application/gzip' }));
       transfer.push(data.buffer);
     }
 

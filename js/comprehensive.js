@@ -13,9 +13,9 @@ export const COMPREHENSIVE_DBS = [
   { key: 'vfdb_core', label: 'Virulence factors (VFDB)', kind: 'vf' },
 ];
 
-export function runFastp(files, { paired, nanopore } = {}) {
+export function runFastp(files, { paired, nanopore, options } = {}) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./fastp-runner.worker.js', import.meta.url));
+    const worker = new Worker(new URL('./fastp-runner.worker.js?v=wasm64', import.meta.url));
     worker.onmessage = (e) => {
       const m = e.data;
       if (m.type === 'log') {
@@ -32,14 +32,14 @@ export function runFastp(files, { paired, nanopore } = {}) {
       worker.terminate();
       reject(new Error(err.message || 'fastp worker crashed'));
     };
-    worker.postMessage({ type: 'run', files, paired, nanopore });
+    worker.postMessage({ type: 'run', files, paired, nanopore, options });
   });
 }
 
 let fastpLog = null;
 export function setFastpLog(fn) { fastpLog = fn; }
 
-export async function runComprehensive(files, readType, { onStep, runQc = true, dbKeys, thresholds } = {}) {
+export async function runComprehensive(files, readType, { onStep, runQc = true, dbKeys, thresholds, fastpOptions } = {}) {
   const paired = readType === 'paired';
   const nanopore = readType === 'nanopore';
   const dbs = dbKeys?.length
@@ -51,13 +51,17 @@ export async function runComprehensive(files, readType, { onStep, runQc = true, 
 
   // ── Optional QC + trim ──
   let qc = null;
+  let qcHtml = null;
+  let qcReads = null;
   let analysisFiles = files;
   if (runQc) {
     step('Quality control (fastp)…');
     try {
-      const out = await runFastp(files, { paired, nanopore });
+      const out = await runFastp(files, { paired, nanopore, options: fastpOptions });
       qc = out.report;
-      if (out.reads && out.reads.length) analysisFiles = out.reads;
+      qcHtml = out.html || null;
+      qcReads = out.reads || [];
+      if (qcReads.length) analysisFiles = qcReads;
     } catch (err) {
       qc = null; // QC is best-effort: proceed with original reads
       fastpLog?.(`fastp failed (${err.message}); continuing with unfiltered reads`, 'warn');
@@ -76,7 +80,7 @@ export async function runComprehensive(files, readType, { onStep, runQc = true, 
     results.push(await runAnalysis(analysisFiles, db.key, config));
   }
   onStep?.(total, total, 'Done');
-  return { qc, results, usedFiltered: analysisFiles !== files };
+  return { qc, qcHtml, qcReads, usedFiltered: analysisFiles !== files, results };
 }
 
 // ── QC summarisation ──

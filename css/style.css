@@ -255,16 +255,72 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 
 /* ── Run options / comprehensive pipeline ── */
 
-.check-row{display:inline-flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;color:var(--ink)}
-.check-row input{accent-color:var(--ink);margin:0;flex-shrink:0}
-.db-checks{display:flex;flex-wrap:wrap;gap:10px 26px}
-.db-desc{color:var(--muted);font-size:12px;margin-left:8px}
-.db-load{flex-shrink:0;min-width:26px;height:22px;padding:0 7px;margin-left:4px;font-size:12px;line-height:1;color:var(--muted);font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);cursor:pointer;font-variant-numeric:tabular-nums}
-.db-load:hover:not(:disabled){color:var(--ink);border-color:var(--ink)}
-.db-load:disabled{cursor:default;opacity:.8}
-.db-load.ok{color:var(--bg);background:var(--ink);border-color:var(--ink)}
+.check-row{display:inline-flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;color:var(--ink)}
+.check-row input{accent-color:var(--ink);width:18px;height:18px;margin:0;flex-shrink:0;cursor:pointer}
+/* ── Databases: multi-select dropdown ──
+   The trigger button shows the selection as chips; the menu shows a tick
+   per selected database plus per-row download progress. */
+/* Fixed viewport-relative width so a single short chip (e.g. just
+   "ResFinder") doesn't shrink the trigger and the menu down to a
+   stacked, unreadable sliver. Full width on phones. */
+.db-group{flex:1 1 240px;min-width:0}
+.db-select{position:relative;width:clamp(280px,40vw,480px)}
+@media (max-width:520px){.db-select{width:100%}}
+.db-select-btn{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:5px 8px 5px 10px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg);text-align:left}
+.db-select-btn:hover{border-color:var(--ink)}
+.db-chips{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-height:22px;align-items:center}
+.db-chip{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:500;border:1px solid var(--border);border-radius:11px;padding:2px 10px;color:var(--ink);background:var(--bg)}
+.db-chip.loading{color:var(--muted)}
+.db-chip-stat{font-size:11px;font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
+.db-chip-empty{font-size:13px;color:var(--muted)}
+.db-caret{color:var(--muted);font-size:11px;flex-shrink:0;transition:transform .2s}
+.db-select-btn[aria-expanded="true"] .db-caret{transform:rotate(180deg)}
+.db-menu{position:absolute;z-index:60;top:calc(100% + 6px);left:0;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);box-shadow:0 10px 28px rgba(0,0,0,.14);padding:6px}
+.db-group-label{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:8px 10px 3px}
+.db-group-label + .db-option{margin-top:2px}
+.db-option{display:grid;grid-template-columns:18px 1fr auto;gap:1px 10px;align-items:center;padding:8px 10px;border-radius:var(--r);cursor:pointer}
+.db-option:hover{background:var(--rule)}
+.db-tick{width:17px;height:17px;border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;color:transparent;background:var(--bg)}
+.db-option.selected .db-tick{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.db-opt-name{font-size:14px;font-weight:500}
+.db-opt-size{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.db-option.downloading .db-opt-size{color:var(--ink)}
+.db-opt-prog{grid-column:1 / -1;height:3px;margin-top:4px;background:var(--rule);border-radius:2px;overflow:hidden;display:none}
+.db-option.downloading .db-opt-prog{display:block}
+.db-opt-prog > i{display:block;height:100%;width:0;background:var(--ink);transition:width .2s}
+.clear-cache-btn{align-self:flex-start;font-size:12px;color:var(--muted);border:none;padding:2px 0;margin-top:2px;text-decoration:underline;text-underline-offset:3px}
+.clear-cache-btn:hover{color:var(--ink)}
+.clear-cache-btn:disabled{opacity:.5;cursor:default}
 .opt-group{display:flex;flex-direction:column;gap:6px}
 .opt-note{font-size:12px;color:var(--muted);margin:0}
+[hidden]{display:none!important}
+
+/* ── fastp settings panel (opened manually via the expander, never auto) ── */
+.fastp-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);border:none;padding:2px 0;margin-top:2px}
+.fastp-toggle:hover{color:var(--ink)}
+.fastp-caret{font-size:10px;transition:transform .2s}
+.fastp-toggle[aria-expanded="true"] .fastp-caret{transform:rotate(180deg)}
+.fastp-panel{display:flex;flex-direction:column;gap:10px;margin-top:8px;padding:14px 16px;border:1px solid var(--border);border-radius:var(--r)}
+.fp-group{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r)}
+.fp-group-head{font-weight:500}
+.fp-def{font-size:12px;font-weight:400;color:var(--muted)}
+.fp-fields{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:flex-start}
+.fp-fields > .opt-note{flex-basis:100%;margin:0}
+.fp-field{display:flex;flex-direction:column;gap:4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.fp-field input,.fp-field select{min-width:180px;padding:5px 9px;font-size:13px;text-transform:none;letter-spacing:0}
+.fp-field input[type=number]{min-width:100px;font-variant-numeric:tabular-nums}
+.fp-field input[type=text]{font-family:var(--mono);text-transform:uppercase;letter-spacing:.02em}
+.fp-field input:disabled,.fp-field select:disabled{opacity:.45;cursor:not-allowed}
+.fp-field-check{justify-content:center;min-height:30px}
+.fp-field-check .check-row{font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.fp-field-check .fp-def{margin-left:0}
+
+/* fastp artifact downloads on the QC card */
+.qc-dl{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule)}
+.qc-dl-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-right:4px}
+.qc-dl-btn{font-size:12px;line-height:1.4;color:var(--ink);background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:4px 10px;white-space:nowrap}
+.qc-dl-btn:hover{border-color:var(--ink)}
+.card-body .opt-note{margin-top:10px}
 .comp-title {
   display: flex;
   align-items: center;
@@ -307,6 +363,55 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 /* ── Fetch a public run from ENA ── */
 #run-accession{flex:1 1 160px;min-width:140px;max-width:280px;font-family:var(--mono);font-size:13px}
 .fetch-row{flex-wrap:wrap}
+.fetch-row .label{width:auto;white-space:nowrap}
 .fetch-meta{margin:10px 2px 0;font-size:13px;color:var(--muted);line-height:1.5}
 .fetch-meta b{color:var(--ink);font-weight:600}
 
+/* ── CABBAGE results card (phenotype prediction) ── */
+.cabb-card .card-body{display:flex;flex-direction:column;gap:14px}
+.cabb-head-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cabb-species-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+#cabb-species{max-width:320px;font-size:14px;padding:5px 10px}
+.cabb-isolates{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cabb-preds{display:flex;flex-direction:column;gap:8px}
+.cabb-pred{display:grid;grid-template-columns:150px minmax(130px,170px) minmax(160px,1fr) auto;gap:12px;align-items:center;padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r)}
+.cabb-verdict-pill{font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-radius:10px;padding:2px 9px;justify-self:start;border:1px solid var(--border);white-space:nowrap}
+.cabb-verdict-resistant .cabb-verdict-pill{border-color:#b3261e;color:#b3261e;background:rgba(179,38,30,.06)}
+.cabb-verdict-uncertain .cabb-verdict-pill{border-color:#9a6b00;color:#9a6b00;background:rgba(154,107,0,.06)}
+.cabb-verdict-susceptible .cabb-verdict-pill{border-color:#1b6e3f;color:#1b6e3f;background:rgba(27,110,63,.06)}
+.cabb-ab-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cabb-bars{display:flex;flex-direction:column;gap:3px;min-width:0}
+.cabb-bar-row{display:grid;grid-template-columns:1fr 48px;gap:8px;align-items:center}
+.cabb-bar-track{height:9px;background:var(--rule);border-radius:var(--r);overflow:hidden;display:block}
+.cabb-bar-fill{display:block;height:100%;background:var(--ink)}
+.cabb-bar-fill.bg{background:#999}
+.cabb-bar-val{font-size:11px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.cabb-bar-row.bg .cabb-bar-val{color:var(--muted)}
+.cabb-genes{display:flex;flex-direction:column;gap:3px}
+.cabb-gene{font-size:12px;white-space:nowrap}
+.cabb-gene b{font-variant-numeric:tabular-nums}
+.cabb-bg-note{font-size:11px;color:var(--muted);grid-column:1 / -1;padding-top:2px}
+.cabb-missing{font-size:12px;color:var(--muted);line-height:1.6}
+.cabb-missing code{font-size:11px}
+.cabb-ab-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--rule)}
+.cabb-ab-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.cabb-refine-btn{font-size:12px;color:var(--muted);text-decoration:underline;text-underline-offset:2px;padding:2px 0}
+.cabb-refine-btn:disabled{opacity:.5;cursor:wait}
+.cabb-filters{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 2px}
+.cabb-filters select{font-size:12px;padding:4px 8px;max-width:200px}
+.cabb-clear-filters{font-size:12px;color:var(--muted);text-decoration:underline;padding:4px 2px}
+.cabb-abtable{display:flex;flex-direction:column;gap:4px}
+.cabb-abrow{display:grid;grid-template-columns:minmax(120px,180px) 1fr 48px 70px;gap:10px;align-items:center;font-size:12px}
+.cabb-abrow .cabb-ab-name{font-weight:400}
+.cabb-bar-n{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cabb-footnote{font-size:11px;color:var(--muted);line-height:1.6;border-top:1px solid var(--rule);padding-top:10px}
+
+@media (max-width:760px){
+  .cabb-pred{grid-template-columns:1fr auto;grid-auto-rows:auto}
+  .cabb-bars{grid-column:1 / -1}
+  .cabb-abrow{grid-template-columns:minmax(90px,130px) 1fr 44px}
+  .cabb-bar-n{display:none}
+}
+
+.cabb-preds-more{font-size:12px;color:var(--muted);text-decoration:underline;text-underline-offset:2px;padding:4px 2px;align-self:flex-start}
+.cabb-preds .cabb-pred.row-limited{display:none}

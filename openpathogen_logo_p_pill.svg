@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-48 -48 516 536" width="516" height="536">
+  <!-- stem of the "p", descending below the pill -->
+  <rect x="0" y="0" width="56" height="440" fill="#000"/>
+  <!-- extended p-bowl drawn as a horizontal pill (the cell) -->
+  <rect x="28" y="28" width="364" height="264" rx="132" fill="none" stroke="#000" stroke-width="56"/>
+  <!-- the "o" / plasmid inside the pill, same stroke weight, aligned left -->
+  <circle cx="168" cy="160" r="56" fill="none" stroke="#000" stroke-width="56"/>
+</svg>

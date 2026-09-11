@@ -3,13 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>About · openpathogen</title>
+  <title>About · openpathogen — how browser-based AMR &amp; virulence detection works</title>
   <meta name="description" content="The KMA aligner compiled to WebAssembly runs in your browser with curated ResFinder, CARD and VFDB databases. No installation, no upload.">
   <link rel="canonical" href="https://openpathogen.org/about.html">
+  <meta name="theme-color" content="#ffffff">
   <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="stylesheet" href="css/style.css?v=36">
-  <script data-goatcounter="https://openpathogen.goatcounter.com/count"
-          async src="//gc.zgo.at/count.js"></script>
+  <link rel="apple-touch-icon" href="favicon.png">
+  <link rel="stylesheet" href="css/style.css?v=63">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="openpathogen">
+  <meta property="og:title" content="About openpathogen — how browser-based AMR &amp; virulence detection works">
+  <meta property="og:description" content="The KMA aligner compiled to WebAssembly runs in your browser with curated ResFinder, CARD and VFDB databases. No installation, no upload.">
+  <meta property="og:url" content="https://openpathogen.org/about.html">
+  <meta property="og:image" content="https://openpathogen.org/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="About openpathogen — how browser-based AMR &amp; virulence detection works">
+  <meta name="twitter:description" content="The KMA aligner compiled to WebAssembly runs in your browser with curated ResFinder, CARD and VFDB databases. No installation, no upload.">
+  <meta name="twitter:image" content="https://openpathogen.org/og.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "About openpathogen",
+    "url": "https://openpathogen.org/about.html",
+    "description": "How openpathogen works: the KMA aligner compiled to WebAssembly runs in your browser with curated ResFinder, CARD and VFDB databases.",
+    "isPartOf": { "@type": "WebSite", "name": "openpathogen", "url": "https://openpathogen.org/" },
+    "about": { "@id": "https://openpathogen.org/#app" }
+  }
+  </script>
 </head>
 <body class="doc-body">
 
@@ -33,11 +57,26 @@
       <p class="doc-byline">Developed by <a href="https://amulya.no" target="_blank" rel="noopener">Amulya Baral</a></p>
       <p class="doc-lede">openpathogen is an open-source, privacy-friendly, zero-install pathogen profiling platform.</p>
       <p>It uses <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a> (read-based gene detection), version 1.5.1, compiled to <a href="https://webassembly.org/" target="_blank" rel="noopener">WebAssembly</a>.</p>
-      <p>All of your data is analyzed locally in your own browser, and does not have to be uploaded to a server anywhere. This makes it fast, private, and safe to use even with sensitive clinical or unpublished sequencing data.</p>
-      <p>Because everything runs client-side, there is no account to create and no server that you have to put your trust on. The only network traffic is the one-time download of the WebAssembly engine and whichever reference database you select.</p>
-      <p>Databases are downloaded once and cached in your browser (IndexedDB), so repeat runs against the same database start instantly. The first run against a large database may take a moment while it downloads.</p>
+      <p>All of your data is analyzed locally in your own browser, and is never uploaded anywhere. This makes it fast, private, and safe to use even with sensitive clinical or unpublished sequencing data.</p>
+      <p>Because everything runs client-side, there is no account to create and no server that you have to put your trust on. The app itself, the WebAssembly engines and the databases are the only things downloaded to you — the exact, complete list of network traffic is in the <a href="#privacy">privacy section</a> below.</p>
+      <p>Databases are downloaded once, verified against pinned SHA-256 checksums, and cached in your browser (IndexedDB), so repeat runs against the same database start instantly. The first run against a large database may take a moment while it downloads.</p>
 
     </section>
+
+    <section id="privacy">
+      <h2>Privacy: exactly what leaves your browser</h2>
+      <p>Nothing you upload ever leaves your machine — but a website is never zero-network, and you should not have to take our word for it. This is the complete list of requests openpathogen makes, so it can be checked against the open-source code or your browser's network inspector.</p>
+      <dl class="defs">
+        <dt>Your sequencing files (FASTQ)</dt>
+        <dd>Never uploaded, never sent anywhere, never written to disk. Files are read into memory, processed by WebAssembly inside your browser, and gone when you close the tab. No cookies, no accounts, no local storage of your files.</dd>
+        <dt>Page views (Cloudflare, our host)</dt>
+        <dd>This site is served through Cloudflare, which handles every request — including your IP address — the way any web host must. Page views are counted with Cloudflare's built-in Web Analytics: cookieless, no cross-site tracking, no advertising, no selling of data, and when enabled Cloudflare injects its own small beacon script (visible in your network inspector as <code>cloudflareinsights.com</code>). There is no separate analytics provider — no third-party tracker runs on every visit, and no analytics code ships in the app's own source. The only requests that leave this site go to ENA (when you fetch a run) or Zenodo (databases), both below.</dd>
+        <dt>Databases, CABBAGE snapshot &amp; engines (this site / Zenodo)</dt>
+        <dd>The KMA/fastp engines ship with the page; the ResFinder, CARD and VFDB indexes and the CABBAGE phenotype snapshot are downloaded once from this site or <a href="https://zenodo.org/records/22102687" target="_blank" rel="noopener">Zenodo</a> and cached locally. Zenodo sees the download request; every file is checked against a pinned SHA-256 checksum before it is used or cached, so a corrupted or tampered download is rejected rather than silently changing your results.</dd>
+        <dt>Fetching a public run (only when you ask)</dt>
+        <dd>If you fetch a run by accession or load the example isolate, the accession and your IP address are sent to EMBL-EBI (ENA) — that is inherent in downloading from them, and it means ENA knows which public run you fetched. The reads are then cached in your browser like the databases.</dd>
+      </dl>
+      <p>That is everything. To remove all locally cached data (indexes, snapshots, example and fetched runs), use <strong>Clear cached data</strong> under the database selector on the main page.</p>
 
     <section>
       <h2>Getting started</h2>
@@ -62,6 +101,12 @@
     </section>
 
     <section>
+      <h2>CABBAGE: from genotype to phenotype</h2>
+      <p>Gene detection answers <em>what</em> is there; clinicians usually need <em>what it means for treatment</em>. Every analysis therefore ends with a <strong>Phenotype prediction (CABBAGE)</strong> card, built on CABBAGE (<em>Comprehensive Assessment of Bacterial-Based AMR prediction from Genotypes</em>, <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">Dickens et al., NAR 2026</a>) — the database linking 170,000+ sequenced bacterial isolates to their measured antimicrobial susceptibility phenotypes (~1.7 million AST records).</p>
+      <p>For the sample's species, each detected gene is matched against the ~165,000 CABBAGE isolates that have both a genome and an antibiogram, so results read like: <em>"mecA — 97.7% of 1,791 S. aureus isolates carrying this gene were methicillin-resistant"</em>, with the species' background resistance rate shown alongside for comparison, and phenotypes taken from the updated 2025 CLSI/EUCAST breakpoint reinterpretation. A species antibiogram below the predictions shows per-antibiotic resistance rates across the whole database, refinable by country, year and isolation source. Genes with no phenotype evidence in CABBAGE are listed honestly rather than guessed. Everything is computed locally from a small cached snapshot, and the predictions ship inside the results ZIP; to browse the full database itself, use the <a href="https://www.ebi.ac.uk/amr" target="_blank" rel="noopener">EMBL-EBI AMR portal</a>.</p>
+    </section>
+
+    <section>
       <h2>Some notes</h2>
       <ul class="tips">
         <li>Defaults of 80% identity and 80% coverage have been chosen following common reporting thresholds; this does not in any way mean they are absolute. For example, you can lower the identity threshold to recover divergent variants, or lower the coverage threshold for fragmented or low-depth samples.</li>
@@ -76,6 +121,7 @@
       <h2>Citation</h2>
       <p>We have a short communication in preparation. Please cite KMA and the relevant database in the meantime:</p>
       <p class="cite">Clausen PTLC, Aarestrup FM, Lund O. <em>Rapid and precise alignment of raw reads against redundant databases with KMA.</em> BMC Bioinformatics. 2018;19:307. <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">doi:10.1186/s12859-018-2336-6</a></p>
+      <p class="cite">Dickens E, et al. <em>A comprehensive AMR genotype–phenotype database (CABBAGE).</em> Nucleic Acids Research. 2026. <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">doi:10.1093/nar/gkag780</a> — for CABBAGE data.</p>
     </section>
 
   </article>

@@ -1,9 +1,10 @@
 import { initWasm, setLogCallback, formatBytes, isDatabaseCached, preloadDatabase } from './wasm-runtime.js';
 import { loadPhenotypesDB, parseResFile } from './resfinder-db.js';
-import { cacheDBFile, getCachedDBFile } from './db.js';
+import { cacheDBFile, getCachedDBFile, clearDBCache } from './db.js';
 import { openGeneViewer } from './gene-view.js';
 import { fetchAssetWithProgress } from './assets.js';
 import { lookupRun } from './fetch-run.js';
+import { collectDetectedGenes, mountCabbageReport } from './cabbage-report.js';
 import {
   runComprehensive, setFastpLog, summariseQc, qcVerdict, COMPREHENSIVE_DBS,
 } from './comprehensive.js';
@@ -13,6 +14,9 @@ const state = {
   files: { r1: null, r2: null },
   wasmReady: false,
   running: false,
+  organism: null, // set when a run's metadata names the species (ENA lookup, example)
+  selectedDbs: new Set(['resfinder']),
+  dbCached: new Set(), // indexes already in the IndexedDB cache
 };
 
 const term = {
@@ -49,24 +53,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-run')?.addEventListener('click', doRun);
   document.getElementById('btn-example')?.addEventListener('click', () => loadExample());
   document.getElementById('btn-fetch-run')?.addEventListener('click', doFetchRun);
-
-  // Per-database preload buttons (↓): pull an index into the IndexedDB cache
-  // ahead of a run. Shows ✓ once every file of that database is cached.
-  document.querySelectorAll('.db-load').forEach((btn) => {
-    btn.addEventListener('click', () => preloadDb(btn));
-    refreshDbLoadBtn(btn);
-  });
   document.getElementById('run-accession')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') doFetchRun();
   });
   document.getElementById('btn-back')?.addEventListener('click', () => {
     document.getElementById('workspace').classList.remove('show-results');
   });
+  document.getElementById('btn-clear-cache')?.addEventListener('click', clearCachedData);
   setupLogsToggle();
   applyReadType();
 
   const logToTerm = (msg, level) => term.push(msg, level);
   setLogCallback(logToTerm);
+
+  // Deep link: ?run=<accession> fetches that public run straight away, so a
+  // run can be shared or re-analyzed with a single URL.
+  const runParam = new URLSearchParams(location.search).get('run');
+  if (runParam && /^[ESD]RR\d+$/i.test(runParam.trim())) {
+    const input = document.getElementById('run-accession');
+    if (input) {
+      input.value = runParam.trim();
+      doFetchRun();
+    }
+  }
 
   try {
     await Promise.all([initWasm(), loadPhenotypesDB()]);
@@ -110,14 +119,99 @@ function expandLogs() {
 // databases can be selected. Defaults: ResFinder only, fastp off.
 
 function selectedDbs() {
-  return [...document.querySelectorAll('.db-check:checked')].map(cb => cb.value);
+  return COMPREHENSIVE_DBS.filter(d => state.selectedDbs.has(d.key)).map(d => d.key);
 }
 
 function setupRunOptions() {
-  document.getElementById('opt-fastp').addEventListener('change', updateRunButton);
-  document.querySelectorAll('.db-check').forEach(cb => {
-    cb.addEventListener('change', updateRunButton);
+  document.getElementById('opt-fastp')?.addEventListener('change', () => {
+    refreshFastpPanel();
+    updateRunButton();
   });
+  // The settings panel never inflates on its own: a "fastp settings"
+  // expander appears when fastp is on, and only the user opens it.
+  document.getElementById('fastp-toggle')?.addEventListener('click', () => {
+    fastpExpanded = !fastpExpanded;
+    refreshFastpPanel();
+  });
+  // Sub-toggles gate their own fields: unchecking "Adapter trimming" greys
+  // out the sequence inputs, etc.
+  for (const id of ['fp-trim', 'fp-quality', 'fp-length']) {
+    document.getElementById(id)?.addEventListener('change', refreshFastpPanel);
+  }
+  setupDbSelect();
+  refreshFastpPanel();
+}
+
+// ── fastp settings panel ──
+//
+// Hidden until the user expands it via the toggle (visible only while the
+// fastp checkbox is on). Controls are replaced by a note for Nanopore
+// (fastp is Illumina-oriented and runs stats-only there), and paired-only
+// fields (R2 adapter, overlap correction) hide otherwise. Field values
+// always carry the defaults, so what the user sees is what fastp would use.
+
+let fastpExpanded = false;
+
+function refreshFastpPanel() {
+  const cfg = document.getElementById('fastp-config');
+  if (!cfg) return;
+  const on = document.getElementById('opt-fastp').checked;
+  const nanopore = state.readType === 'nanopore';
+  const paired = state.readType === 'paired';
+  const toggle = document.getElementById('fastp-toggle');
+  if (toggle) {
+    toggle.hidden = !on;
+    toggle.setAttribute('aria-expanded', String(on && fastpExpanded));
+  }
+  cfg.hidden = !(on && fastpExpanded);
+  document.getElementById('fastp-panel').hidden = nanopore;
+  document.getElementById('fastp-ont-note').hidden = !nanopore;
+  const gate = (fieldsId, enabled) => {
+    document.getElementById(fieldsId)?.querySelectorAll('input,select')
+      .forEach(el => { el.disabled = !enabled; });
+  };
+  gate('fp-adapter-fields', document.getElementById('fp-trim').checked);
+  gate('fp-quality-fields', document.getElementById('fp-quality').checked);
+  gate('fp-length-fields', document.getElementById('fp-length').checked);
+  document.getElementById('fp-field-adapter-r2').style.display = paired ? '' : 'none';
+  document.getElementById('fp-correction-field').style.display = paired ? '' : 'none';
+}
+
+// Read the panel into the options object the fastp worker understands.
+// Mirrors the defaults documented in index.html; invalid entries get a
+// warning and fall back (the worker re-validates defensively).
+const IUPAC_ADAPTER_RE = /^[ACGTURYSWKMBDHVN]{5,100}$/;
+
+function collectFastpOptions() {
+  const el = (id) => document.getElementById(id);
+  const opts = {
+    adapterTrim: el('fp-trim').checked,
+    qualityFilter: el('fp-quality').checked,
+    lengthFilter: el('fp-length').checked,
+    polyG: el('fp-polyg').value || 'auto',
+    correction: el('fp-correction').checked,
+  };
+  if (opts.adapterTrim) {
+    const seqs = [['fp-adapter-r1', 'adapterR1', 'adapter R1'],
+                  ['fp-adapter-r2', 'adapterR2', 'adapter R2']];
+    for (const [id, key, label] of seqs) {
+      const input = el(id);
+      if (input.disabled || !input.value.trim()) continue;
+      const seq = input.value.replace(/\s+/g, '').toUpperCase();
+      if (IUPAC_ADAPTER_RE.test(seq)) opts[key] = seq;
+      else term.push(`Ignoring ${label}: expected 5–100 IUPAC bases (A C G T U R Y S W K M B D H V N); using auto-detection.`, 'warn');
+    }
+  }
+  if (opts.qualityFilter) {
+    opts.qualifiedPhred = parseInt(el('fp-phred').value, 10);
+    opts.unqualifiedPercent = parseInt(el('fp-unqual-pct').value, 10);
+    opts.nBaseLimit = parseInt(el('fp-nlimit').value, 10);
+  }
+  if (opts.lengthFilter) {
+    opts.minLength = parseInt(el('fp-minlen').value, 10);
+    opts.maxLength = parseInt(el('fp-maxlen').value, 10);
+  }
+  return opts;
 }
 
 // ── Read type ──
@@ -146,6 +240,7 @@ function applyReadType() {
   }
   document.querySelectorAll('#read-type .seg-btn').forEach(b =>
     b.setAttribute('aria-pressed', String(b.classList.contains('active'))));
+  refreshFastpPanel();
   updateRunButton();
 }
 
@@ -249,6 +344,7 @@ async function loadExample() {
   const original = btn.textContent;
   try {
     setReadType('paired');
+    state.organism = 'Staphylococcus aureus';
     term.push(`Example isolate: ${EXAMPLE.organism} · ENA/SRA ${EXAMPLE.accession}`, 'info');
     term.push(EXAMPLE.note, 'info');
     term.push('USA300_TCH1516: community-associated MRSA reference strain (ST8), PVL-positive.', 'info');
@@ -286,30 +382,174 @@ async function loadExample() {
   }
 }
 
-// ── Index preloading (↓ buttons in the Databases row) ──
+// ── Database multi-select dropdown ──
+//
+// Selection drives downloading: ResFinder (the default) is fetched as soon
+// as the page is ready, other indexes download the first time they're
+// selected, and everything stays in the IndexedDB cache. Selected databases
+// show a tick in the menu and appear as chips on the trigger button.
 
-async function refreshDbLoadBtn(btn) {
-  const cached = await isDatabaseCached(btn.dataset.db);
-  btn.textContent = cached ? '✓' : '↓';
-  btn.classList.toggle('ok', cached);
-  if (cached) btn.title = 'Index already cached in this browser';
+const DB_META = {
+  resfinder: { short: 'ResFinder', size: '12 MB' },
+  card_homolog: { short: 'CARD', size: '24 MB' },
+  vfdb_core: { short: 'VFDB', size: '78 MB' },
+};
+
+const DB_DOWNLOADS = new Map(); // db key → { pct, promise } while in flight
+
+function setupDbSelect() {
+  const btn = document.getElementById('db-select-btn');
+  const menu = document.getElementById('db-menu');
+  const wrap = document.getElementById('db-select');
+  if (!btn || !menu) return;
+  const setOpen = (open) => {
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  };
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOpen(menu.hidden);
+  });
+  document.addEventListener('click', (e) => {
+    if (!menu.hidden && !wrap.contains(e.target)) setOpen(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !menu.hidden) setOpen(false);
+  });
+  document.querySelectorAll('.db-option').forEach((row) => {
+    const pick = () => toggleDb(row.dataset.db);
+    row.addEventListener('click', pick);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+    });
+  });
+
+  renderDbUi();
+  // Cache state first, then start the default database downloading right
+  // away — before any reads are loaded, so it's ready when they are.
+  (async () => {
+    for (const db of COMPREHENSIVE_DBS) {
+      try { if (await isDatabaseCached(db.key)) state.dbCached.add(db.key); } catch (_) { /* cache check is best-effort */ }
+    }
+    renderDbUi();
+  })();
+  downloadDb('resfinder');
 }
 
-async function preloadDb(btn) {
-  if (btn.disabled) return;
+function toggleDb(key) {
+  if (state.selectedDbs.has(key)) {
+    state.selectedDbs.delete(key);
+  } else {
+    state.selectedDbs.add(key);
+    downloadDb(key); // no-op when already cached or in flight
+  }
+  renderDbUi();
+  updateRunButton();
+}
+
+// Download an index unless it's cached or already downloading. Errors are
+// logged but never block: the run itself re-fetches on demand if needed.
+// Zenodo serves the files without content-length, so byte-percentage is
+// usually unavailable — progress then falls back to file i/n counts.
+function downloadDb(key) {
+  if (DB_DOWNLOADS.has(key) || state.dbCached.has(key)) return;
+  const meta = DB_META[key];
+  const entry = { pct: null, file: null, promise: null };
+  DB_DOWNLOADS.set(key, entry);
+  term.push(`Downloading ${meta.short} index (${meta.size})…`, 'info');
+  entry.promise = preloadDatabase(key,
+    (got, total) => {
+      entry.pct = total ? Math.min(100, Math.round(100 * got / total)) : null;
+      renderDbUi();
+    },
+    (i, n) => {
+      entry.file = n > 1 ? `${i + 1}/${n}` : null;
+      renderDbUi();
+    })
+    .then(() => {
+      state.dbCached.add(key);
+      term.push(`${meta.short} index cached — ready to run.`, 'ok');
+    })
+    .catch((err) => {
+      term.push(`Could not download the ${meta.short} index: ${err.message}`, 'error');
+    })
+    .finally(() => {
+      DB_DOWNLOADS.delete(key);
+      renderDbUi();
+    });
+  renderDbUi();
+}
+
+const dlStatus = (dl) => dl.pct != null ? `↓ ${dl.pct}%` : dl.file != null ? `↓ ${dl.file}` : '…';
+
+// Repaint chips (button) and ticks/progress (menu rows) from state.
+function renderDbUi() {
+  const chips = document.getElementById('db-chips');
+  if (!chips) return;
+  chips.innerHTML = '';
+  for (const db of COMPREHENSIVE_DBS) {
+    if (!state.selectedDbs.has(db.key)) continue;
+    const meta = DB_META[db.key];
+    const dl = DB_DOWNLOADS.get(db.key);
+    const chip = document.createElement('span');
+    chip.className = 'db-chip' + (dl ? ' loading' : '');
+    const name = document.createElement('span');
+    name.textContent = meta.short;
+    chip.appendChild(name);
+    if (dl) {
+      const stat = document.createElement('span');
+      stat.className = 'db-chip-stat';
+      stat.textContent = dlStatus(dl);
+      chip.appendChild(stat);
+    }
+    chips.appendChild(chip);
+  }
+  if (!chips.children.length) {
+    const empty = document.createElement('span');
+    empty.className = 'db-chip-empty';
+    empty.textContent = 'No databases selected';
+    chips.appendChild(empty);
+  }
+  document.querySelectorAll('.db-option').forEach((row) => {
+    const key = row.dataset.db;
+    const selected = state.selectedDbs.has(key);
+    row.classList.toggle('selected', selected);
+    row.setAttribute('aria-selected', String(selected));
+    const sizeEl = row.querySelector('.db-opt-size');
+    const dl = DB_DOWNLOADS.get(key);
+    const bar = row.querySelector('.db-opt-prog > i');
+    if (dl) {
+      row.classList.add('downloading');
+      if (sizeEl) sizeEl.textContent = dlStatus(dl);
+      if (bar) bar.style.width = (dl.pct || 3) + '%';
+    } else {
+      row.classList.remove('downloading');
+      if (bar) bar.style.width = '0';
+      if (sizeEl) sizeEl.textContent = DB_META[key].size;
+    }
+  });
+}
+
+// ── Clear cached data ──
+//
+// Wipes the IndexedDB cache: database indexes, CABBAGE snapshots, the example
+// isolate and any fetched public runs. Uploaded files are never persisted, so
+// there is nothing else to remove. Data already loaded into memory this
+// session keeps working until the page is reloaded.
+async function clearCachedData() {
+  if (state.running) return;
+  const btn = document.getElementById('btn-clear-cache');
+  if (!btn || btn.disabled) return;
   btn.disabled = true;
-  const original = btn.textContent;
   try {
-    await preloadDatabase(btn.dataset.db,
-      (got, total) => {
-        btn.textContent = total ? `${Math.min(100, Math.round(100 * got / total))}%` : '…';
-      },
-      (i, n) => { btn.textContent = `${i + 1}/${n}`; });
-    await refreshDbLoadBtn(btn);
+    const n = await clearDBCache();
+    state.dbCached.clear();
+    renderDbUi();
+    term.push(`Cleared ${n} cached item${n === 1 ? '' : 's'} from this browser: database indexes, CABBAGE snapshots and any example or fetched-run reads.`, 'ok');
+    term.push('Selected databases re-download the next time they are used. Nothing was uploaded anywhere — the cache was only ever on this device.', 'info');
   } catch (err) {
-    term.push('Could not preload index: ' + err.message, 'error');
-    btn.textContent = original;
-    btn.classList.remove('ok');
+    term.push('Could not clear the cache: ' + err.message, 'error');
+    expandLogs();
   } finally {
     btn.disabled = false;
   }
@@ -349,6 +589,7 @@ async function doFetchRun() {
   try {
     term.push(`Looking up run ${acc} at ENA…`, 'info');
     const run = await lookupRun(acc);
+    state.organism = run.organism || null;
     const platform = PLATFORM_LABELS[run.platform] || run.platform || 'unknown platform';
     const kind = run.readType === 'nanopore'
       ? platform
@@ -413,12 +654,13 @@ async function doRun() {
     };
     setFastpLog((t) => term.push(t, 'info'));
     const runQc = document.getElementById('opt-fastp').checked;
+    const fastpOptions = runQc ? collectFastpOptions() : undefined;
     const thresholds = {
       id_threshold: parseInt(document.getElementById('slider-id').value) / 100,
       mrc: parseInt(document.getElementById('slider-cov').value) / 100,
     };
     const result = await runComprehensive(files, state.readType, {
-      onStep, runQc, dbKeys: selectedDbs(), thresholds,
+      onStep, runQc, dbKeys: selectedDbs(), thresholds, fastpOptions,
     });
     if (statusText) statusText.textContent = 'Analyzing… this may take a moment.';
     renderComprehensive(result, { runQc });
@@ -434,7 +676,7 @@ async function doRun() {
 
 const DB_SHORT = { resfinder: 'ResFinder', card_homolog: 'CARD', vfdb_core: 'VFDB' };
 
-function renderComprehensive({ qc, results }, { runQc } = {}) {
+function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
   const area = document.getElementById('results');
   const metrics = summariseQc(qc);
   const verdict = qcVerdict(metrics);
@@ -449,15 +691,20 @@ function renderComprehensive({ qc, results }, { runQc } = {}) {
       <span class="result-meta">${parts.join(' + ')}</span>
     </div>`;
 
-  // ── Downloads first: one zip with everything ──
+  // ── Downloads first: one zip with everything (except the clean reads,
+  //    which can be hundreds of MB — those live on the QC card) ──
   html += `
     <div class="downloads">
       <button class="btn btn-primary" data-zip>Download all results (ZIP)</button>
-      <p class="dl-nudge">The ZIP has everything from this run: the full result tables, the quality report and the run log.</p>
+      <p class="dl-nudge">The ZIP has everything from this run: the full result tables, fastp's JSON + HTML quality reports, the CABBAGE phenotype predictions and the run log. The clean reads are downloaded separately from the Quality control card below.</p>
     </div>`;
 
   // ── QC card (only when fastp was part of the run) ──
   if (runQc) {
+    const pairedReads = (qcReads || []).length > 1;
+    const readBtns = (qcReads || [])
+      .map((f, i) => `<button class="qc-dl-btn" data-qc-dl="read-${i}">${pairedReads ? `Clean R${i + 1}` : 'Clean reads'} ↓ ${formatBytes(f.size)}</button>`)
+      .join('');
     html += `
       <section class="card">
         <div class="card-title comp-title"><span>Quality control</span><span class="comp-src">fastp</span></div>
@@ -472,6 +719,14 @@ function renderComprehensive({ qc, results }, { runQc } = {}) {
           </div>
           <p class="qc-verdict qc-${verdict.tone}">${esc(verdict.text)}</p>` : `
           <p class="qc-verdict qc-warn">${esc(verdict.text)}</p>`}
+          ${(qc || qcHtml) ? `
+          <div class="qc-dl">
+            <span class="qc-dl-label">fastp output</span>
+            ${qcHtml ? '<button class="qc-dl-btn" data-qc-dl="view">View HTML report ↗</button><button class="qc-dl-btn" data-qc-dl="html">report.html ↓</button>' : ''}
+            ${qc ? '<button class="qc-dl-btn" data-qc-dl="json">report.json ↓</button>' : ''}
+            ${readBtns}
+          </div>
+          <p class="opt-note">Clean reads are the trimmed FASTQs the databases were run against — the first 400,000 reads/pairs (WebAssembly memory limit). report.json records the exact fastp command and every filtering statistic.</p>` : ''}
         </div>
       </section>`;
   }
@@ -494,10 +749,17 @@ function renderComprehensive({ qc, results }, { runQc } = {}) {
     </div>`;
   });
 
-  // ── Downloads: everything in one zip ──
+  // ── Phenotype prediction (CABBAGE) mounts here ──
+  html += '<div id="cabbage-report"></div>';
+
+  // ── Downloads: everything in one zip (reports are small; the clean
+  //    reads stay out of it and are served from the QC card) ──
   const dlFiles = {};
   if (qc) {
-    dlFiles['qc_report.json'] = { data: new TextEncoder().encode(JSON.stringify(qc, null, 2)), binary: true };
+    dlFiles['fastp_report.json'] = { data: new TextEncoder().encode(JSON.stringify(qc, null, 2)), binary: true };
+  }
+  if (qcHtml) {
+    dlFiles['fastp_report.html'] = { data: new TextEncoder().encode(qcHtml), binary: true };
   }
   for (const r of results) {
     for (const [ext, info] of Object.entries(r.files || {})) {
@@ -508,6 +770,46 @@ function renderComprehensive({ qc, results }, { runQc } = {}) {
   dlFiles['.log'] = { data: term.text(), binary: false };
 
   area.innerHTML = html;
+
+  // Per-artifact fastp downloads on the QC card. The HTML report is
+  // self-contained (inline CSS/JS + data), so it can be viewed in a new
+  // tab or saved and shared as-is.
+  const qcDl = area.querySelector('.qc-dl');
+  if (qcDl) {
+    qcDl.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-qc-dl]');
+      if (!btn) return;
+      const kind = btn.dataset.qcDl;
+      if (kind === 'view' && qcHtml) {
+        const url = URL.createObjectURL(new Blob([qcHtml], { type: 'text/html' }));
+        window.open(url, '_blank', 'noopener');
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } else if (kind === 'html' && qcHtml) {
+        download(new Blob([qcHtml], { type: 'text/html' }), 'fastp_report.html');
+      } else if (kind === 'json' && qc) {
+        download(new Blob([JSON.stringify(qc, null, 2)], { type: 'application/json' }), 'fastp_report.json');
+      } else if (kind.startsWith('read-')) {
+        const f = (qcReads || [])[Number(kind.slice(5))];
+        if (f) download(f, f.name);
+      }
+    });
+  }
+
+  // ── Phenotype prediction card (CABBAGE) ──
+  // Mounts after the tables, auto-loads the small association table, and
+  // contributes cabbage_predictions.csv to the ZIP when ready.
+  const cabbageArea = area.querySelector('#cabbage-report');
+  if (cabbageArea) {
+    const detected = collectDetectedGenes(results, parseResFile);
+    mountCabbageReport(cabbageArea, {
+      organism: state.organism,
+      detectedGenes: detected,
+      log: (msg, level) => term.push(msg, level),
+      onCsv: (name, text) => {
+        dlFiles[name] = { data: new TextEncoder().encode(text), binary: true };
+      },
+    });
+  }
 
   // The advanced-mode table bindings, scoped to each database section.
   results.forEach((r, i) => {

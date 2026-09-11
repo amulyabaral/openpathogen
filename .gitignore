@@ -12,6 +12,13 @@ install_emscripten.sh
 *.fas.gz
 *.tar.bz2
 
+# CABBAGE snapshots — hosted on Zenodo, kept local only
+databases/cabbage/
+zenodo_cabbage_upload/
+
+# IDE / workspace
+.zcode/
+
 card-data/
 subsample_test/
 nucleotide_fasta_protein_homolog_model.fasta
@@ -68,3 +75,6 @@ dist/
 DEPLOY.md
 wrangler.toml
 scripts/
+
+# fastp WASM build tree (only patch + artifacts are kept)
+fastp/build-src/

@@ -58,3 +58,16 @@ in published work.
 ### coi-serviceworker v0.1.7 — MIT license
 - Source: https://github.com/gzuidhof/coi-serviceworker
 - Cross-origin isolation headers via service worker.
+
+### CABBAGE (AMR genotype–phenotype database) — see data-source terms
+- Source: https://www.ebi.ac.uk/amr (EMBL-EBI Antimicrobial Resistance
+  portal); processing scripts https://github.com/Leonardini/CABBAGE
+- Experimental antimicrobial susceptibility phenotypes linked to sequenced
+  isolates, plus NCBI AMRFinderPlus in silico genotype predictions. The app
+  ships a compact snapshot pinned to a portal release (release id in
+  databases/cabbage/manifest.json). Data originates from BV-BRC/PATRIC,
+  NCBI Pathogen Detection, PubMLST, EUCAST and literature curation; please
+  respect the terms of the portal and the original data submitters, and
+  use the live portal for the current release.
+- Cite: Dickens E., et al. (2026). A comprehensive AMR genotype–phenotype
+  database (CABBAGE). *Nucleic Acids Research* 54(16): gkag780.

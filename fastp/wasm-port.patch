@@ -1,199 +1,129 @@
-diff --git a/src/duplicate.cpp b/src/duplicate.cpp
-index 4d01958..a6a4cb4 100644
---- a/src/duplicate.cpp
-+++ b/src/duplicate.cpp
-@@ -8,9 +8,18 @@ const int PRIME_ARRAY_LEN = 1<<9;
- Duplicate::Duplicate(Options* opt) {
-     mOptions = opt;
- 
+diff --git a/src/evaluator.cpp b/src/evaluator.cpp
+index bbec050..5e50bf7 100644
+--- a/src/evaluator.cpp
++++ b/src/evaluator.cpp
+@@ -541,7 +541,19 @@ string Evaluator::evalAdapterAndReadNum(long& readNum, bool isR2) {
+         if(key == 0)
+             continue;
+         long count = counts[key];
+-        if(count<10 || count*size < total * FOLD_THRESHOLD)
++        if(count < 10
 +#ifdef __EMSCRIPTEN__
-+    // wasm32: size_t is 32-bit, so (1<<29)<<3 overflows to zero (the exact
-+    // cause of a "remainder by zero" trap in statRead), and a 2 GiB dup
-+    // buffer cannot live in a browser heap. 64 MiB keeps the estimate
-+    // accurate at our read caps. See fastp/WASM_BUILD.md.
-+    mBufLenInBytes = 1UL << 26;
-+    mBufNum = 2;
++            /* Patch 3 (openpathogen): on wasm32, `long` is 32-bit, so the original
++             * `count*size` overflows signed 32-bit once the top-candidate 10-mer
++             * count reaches 2048; for counts in [2048, 4095] the product wraps
++             * negative and adapter detection silently aborts (observed: USA300
++             * MiSeq data, top count 2185). Compare in 64-bit instead — a no-op
++             * on LP64 native builds where the original never overflows. */
++            || (long long)count*size < (long long)total * FOLD_THRESHOLD
 +#else
-     // 1G mem required
-     mBufLenInBytes = 1L <<29;
-     mBufNum = 2;
++            || count*size < total * FOLD_THRESHOLD
 +#endif
- 
-     // if deduplication is enabled, we double the buffer size and buffer number to make more accurate deduplication
-     // this will take 4x memory (4G)
-@@ -21,7 +30,7 @@ Duplicate::Duplicate(Options* opt) {
- 
-     mOffsetMask = PRIME_ARRAY_LEN * mBufNum - 1;
- 
--    mBufLenInBits = mBufLenInBytes << 3;
-+    mBufLenInBits = (uint64)mBufLenInBytes << 3;
-     mDupBuf = new uint8[mBufLenInBytes * mBufNum];
-     memset(mDupBuf, 0, sizeof(uint8) * mBufLenInBytes * mBufNum);
- 
-diff --git a/src/peprocessor.cpp b/src/peprocessor.cpp
-index f42459e..fe9591e 100644
---- a/src/peprocessor.cpp
-+++ b/src/peprocessor.cpp
-@@ -119,6 +119,32 @@ bool PairEndProcessor::process(){
-         initOutput();
- 
-     initPackRepository();
-+#ifdef __EMSCRIPTEN__
-+    // WASM build: no real threads — the pipeline stages run back-to-back.
-+    // This is safe because the browser wrapper caps processing with
-+    // --reads_to_process below PACK_IN_MEM_LIMIT packs, so producerTask()
-+    // never blocks on the bounded pack queue or the writer buffers.
-+    // See fastp/WASM_BUILD.md in the openpathogen repo.
-+    producerTask();
++        )
+             break;
+         // skip low complexity seq
+         int diff = 0;
+diff --git a/src/wasm_wrapper.cpp b/src/wasm_wrapper.cpp
+new file mode 100644
+index 0000000..d06fc69
+--- /dev/null
++++ b/src/wasm_wrapper.cpp
+@@ -0,0 +1,98 @@
++/* wasm_wrapper.cpp — browser entry points for fastp (OpenPathogen WASM build).
++ *
++ * The JS side loads the module inside a dedicated Web Worker and calls
++ * fastp_run(args) via ccall after staging inputs into MEMFS. fastp_run spawns
++ * ONE pthread that runs fastp's unmodified main(): the whole producer /
++ * consumer / writer std::thread pipeline then executes on pthreads while the
++ * worker's runtime thread returns to the JS event loop and services
++ * Emscripten's proxied FS calls. (A runtime thread blocked inside callMain
++ * cannot service those proxies — that deadlock is why an earlier build ran the
++ * pipeline sequentially and capped --reads_to_process; see fastp/WASM_BUILD.md.)
++ *
++ * fastp_state() polls the run: -2 idle, -1 running, >=0 exit code. On
++ * completion the wrapper thread calls exit(code) so stdio is flushed and the
++ * JS onExit callback fires; error paths inside fastp already call exit(-1).
++ *
++ * The PTHREAD_POOL_SIZE baked into the build must cover every thread fastp
++ * spawns (they are created mid-run, when no new workers can appear):
++ * 1 wrapper + 1 producer + <thread> consumers + up to 7 writers (paired-end).
++ */
 +
-+    ThreadConfig** configs = new ThreadConfig*[mOptions->thread];
-+    for(int t=0; t<mOptions->thread; t++){
-+        configs[t] = new ThreadConfig(mOptions, t, true);
-+        initConfig(configs[t]);
-+    }
++#include <pthread.h>
++#include <cstdio>
++#include <string>
++#include <vector>
++#include <cstdlib>
 +
-+    for(int t=0; t<mOptions->thread; t++){
-+        consumerTask(configs[t]);
-+    }
++extern int main(int argc, char** argv);
 +
-+    if(mLeftWriter) writeTask(mLeftWriter);
-+    if(mRightWriter) writeTask(mRightWriter);
-+    if(mUnpairedLeftWriter) writeTask(mUnpairedLeftWriter);
-+    if(mUnpairedRightWriter) writeTask(mUnpairedRightWriter);
-+    if(mMergedWriter) writeTask(mMergedWriter);
-+    if(mFailedWriter) writeTask(mFailedWriter);
-+    if(mOverlappedWriter) writeTask(mOverlappedWriter);
-+#else
-     std::thread producer(std::bind(&PairEndProcessor::producerTask, this));
- 
-     //TODO: get the correct cycles
-@@ -177,6 +203,7 @@ bool PairEndProcessor::process(){
-         if(overlappedWriterThread)
-             overlappedWriterThread->join();
-     }
-+#endif
- 
-     if(mOptions->verbose)
-         loginfo("start to generate reports\n");
-@@ -259,8 +286,10 @@ bool PairEndProcessor::process(){
- 
-     // clean up
-     for(int t=0; t<mOptions->thread; t++){
-+#ifndef __EMSCRIPTEN__
-         delete threads[t];
-         threads[t] = NULL;
-+#endif
-         delete configs[t];
-         configs[t] = NULL;
-     }
-@@ -271,23 +300,39 @@ bool PairEndProcessor::process(){
-     delete finalPostStats2;
-     delete finalFilterResult;
- 
-+#ifndef __EMSCRIPTEN__
-     delete[] threads;
-+#endif
-     delete[] configs;
- 
-+#ifndef __EMSCRIPTEN__
-     if(leftWriterThread)
-         delete leftWriterThread;
-+#endif
-+#ifndef __EMSCRIPTEN__
-     if(rightWriterThread)
-         delete rightWriterThread;
-+#endif
-+#ifndef __EMSCRIPTEN__
-     if(unpairedLeftWriterThread)
-         delete unpairedLeftWriterThread;
-+#endif
-+#ifndef __EMSCRIPTEN__
-     if(unpairedRightWriterThread)
-         delete unpairedRightWriterThread;
-+#endif
-+#ifndef __EMSCRIPTEN__
-     if(mergedWriterThread)
-         delete mergedWriterThread;
-+#endif
-+#ifndef __EMSCRIPTEN__
-     if(failedWriterThread)
-         delete failedWriterThread;
-+#endif
-+#ifndef __EMSCRIPTEN__
-     if(overlappedWriterThread)
-         delete overlappedWriterThread;
-+#endif
- 
-     if(!mOptions->split.enabled)
-         closeOutput();
-diff --git a/src/seprocessor.cpp b/src/seprocessor.cpp
-index 11564d2..88599e6 100644
---- a/src/seprocessor.cpp
-+++ b/src/seprocessor.cpp
-@@ -69,6 +69,27 @@ bool SingleEndProcessor::process(){
-         initOutput();
- 
-     initPackRepository();
-+#ifdef __EMSCRIPTEN__
-+    // WASM build: no real threads — stages run back-to-back; safe because
-+    // the wrapper caps processing with --reads_to_process below
-+    // PACK_IN_MEM_LIMIT packs. See fastp/WASM_BUILD.md.
-+    producerTask();
++static volatile int g_state = 0;      // 0 idle, 1 running, 2 done
++static volatile int g_exit_code = 0;  // valid once g_state == 2
 +
-+    ThreadConfig** configs = new ThreadConfig*[mOptions->thread];
-+    for(int t=0; t<mOptions->thread; t++){
-+        configs[t] = new ThreadConfig(mOptions, t, false);
-+        initConfig(configs[t]);
-+    }
++/* Override libc exit() (static link: this definition wins). fastp calls
++ * exit(-1) on error paths; with EXIT_RUNTIME=0 the real exit() would throw,
++ * and tearing the runtime down would race the proxied stderr prints (they
++ * are dropped, so the error message is lost). Instead: record the code,
++ * flush stdio, end the calling thread. The JS side reads the code from
++ * fastp_state(); the module stays alive so FS outputs remain readable. */
++extern "C" void exit(int code) {
++  fflush(NULL);
++  g_exit_code = code;
++  g_state = 2;
++  pthread_exit(NULL);
++}
 +
-+    for(int t=0; t<mOptions->thread; t++){
-+        consumerTask(configs[t]);
-+    }
++namespace {
 +
-+    if(mLeftWriter)
-+        writeTask(mLeftWriter);
-+    if(mFailedWriter)
-+        writeTask(mFailedWriter);
-+#else
-     std::thread producer(std::bind(&SingleEndProcessor::producerTask, this));
- 
-     //TODO: get the correct cycles
-@@ -102,6 +123,7 @@ bool SingleEndProcessor::process(){
-         if(failedWriterThread)
-             failedWriterThread->join();
-     }
-+#endif
- 
-     if(mOptions->verbose)
-         loginfo("start to generate reports\n");
-@@ -154,8 +176,10 @@ bool SingleEndProcessor::process(){
- 
-     // clean up
-     for(int t=0; t<mOptions->thread; t++){
-+#ifndef __EMSCRIPTEN__
-         delete threads[t];
-         threads[t] = NULL;
-+#endif
-         delete configs[t];
-         configs[t] = NULL;
-     }
-@@ -164,13 +188,19 @@ bool SingleEndProcessor::process(){
-     delete finalPostStats;
-     delete finalFilterResult;
- 
-+#ifndef __EMSCRIPTEN__
-     delete[] threads;
-+#endif
-     delete[] configs;
- 
-+#ifndef __EMSCRIPTEN__
-     if(leftWriterThread)
-         delete leftWriterThread;
-+#endif
-+#ifndef __EMSCRIPTEN__
-     if(failedWriterThread)
-         delete failedWriterThread;
-+#endif
- 
-     if(!mOptions->split.enabled)
-         closeOutput();
++struct Argv {
++  std::vector<std::string> storage;
++  std::vector<char*> vec;
++};
++
++void* run_fastp(void* p) {
++  Argv* argv = static_cast<Argv*>(p);
++  fprintf(stderr, "[wasm_wrapper] entering main, argc=%zu\n", argv->vec.size() - 1);
++  const int code = main(static_cast<int>(argv->vec.size()) - 1, argv->vec.data());
++  delete argv;
++  g_exit_code = code;
++  g_state = 2;
++  return NULL;
++}
++
++} // namespace
++
++extern "C" int fastp_run(const char* args) {
++  if (g_state == 1) return -1; // one run per module; the worker is fresh per run anyway
++
++  Argv* argv = new Argv();
++  argv->storage.push_back("fastp");
++  const std::string s(args ? args : "");
++  size_t i = 0;
++  while (i < s.size()) {
++    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) i++;
++    size_t j = i;
++    while (j < s.size() && s[j] != ' ' && s[j] != '\t') j++;
++    if (j > i) argv->storage.push_back(s.substr(i, j - i));
++    i = j;
++  }
++  for (std::string& a : argv->storage) argv->vec.push_back(&a[0]);
++  argv->vec.push_back(nullptr);
++
++  pthread_t t;
++  if (pthread_create(&t, NULL, run_fastp, argv) != 0) {
++    delete argv;
++    g_exit_code = -3;
++    return -3;
++  }
++  pthread_detach(t);
++  g_state = 1;
++  return 0;
++}
++
++extern "C" int fastp_state() {
++  return g_state;
++}
++
++extern "C" int fastp_code() {
++  return g_exit_code;
++}

@@ -44,3 +44,20 @@ export async function getCachedDBFile(key) {
   const result = await reqP((await store()).get(key));
   return result?.data || null;
 }
+
+// Drop one entry (used when cached bytes fail their integrity check, so the
+// next load re-downloads instead of failing forever).
+export async function deleteDBFile(key) {
+  return reqP((await store('readwrite')).delete(key));
+}
+
+// Wipe the whole cache (database indexes, CABBAGE snapshots, example and
+// fetched-run FASTQs). Returns the number of entries removed. Anything the
+// page still holds in memory (loaded databases, results) is unaffected; it
+// disappears on reload.
+export async function clearDBCache() {
+  const s = await store('readwrite');
+  const keys = await reqP(s.getAllKeys());
+  await reqP(s.clear());
+  return keys.length;
+}

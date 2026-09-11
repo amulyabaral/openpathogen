@@ -1,5 +1,6 @@
-import { getCachedDBFile, cacheDBFile } from './db.js';
+import { getCachedDBFile, cacheDBFile, deleteDBFile } from './db.js';
 import { fetchAssetWithProgress } from './assets.js';
+import { verifyPinned } from './integrity.js';
 
 const DATABASES = {
   resfinder: {
@@ -89,16 +90,30 @@ const DB_SHORT_NAMES = {
 // holding hundreds of MB resident on the main thread.
 
 async function fetchDbFile(db, ext, onProgress) {
-  const cacheKey = db.prefix + ext;
-  let data = await getCachedDBFile(cacheKey);
-  if (data && data.length) return { data, fromCache: true };
+  const path = db.prefix + ext;
+  let data = await getCachedDBFile(path);
+  if (data && data.length) {
+    try {
+      // Cached bytes are re-verified once per session; a mismatch (e.g. from
+      // an older, differently-built index cached under the same path) evicts
+      // the entry and falls through to a fresh download.
+      await verifyPinned(path, data);
+      return { data, fromCache: true };
+    } catch (err) {
+      log(`Cached ${path} failed its integrity check — discarding it and re-downloading.`, 'warn');
+      try { await deleteDBFile(path); } catch (_) { /* best-effort eviction */ }
+    }
+  }
   try {
-    data = await fetchAssetWithProgress(db.prefix + ext, 0, onProgress);
+    data = await fetchAssetWithProgress(path, 0, onProgress);
   } catch (err) {
     if (!INDEX_BASE) throw err;
     data = await fetchAssetWithProgress(INDEX_BASE + DB_SHORT_NAMES[db.shortName] + ext + '/content', 0, onProgress);
   }
-  if (data.length) await cacheDBFile(cacheKey, data); // never cache a failed (empty) load
+  // Verify before use: a mismatch throws and the file is never cached, so a
+  // corrupted or tampered download cannot change gene calls.
+  await verifyPinned(path, data);
+  if (data.length) await cacheDBFile(path, data); // never cache a failed (empty) load
   return { data, fromCache: false };
 }
 
