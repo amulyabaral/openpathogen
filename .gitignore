@@ -12,9 +12,10 @@ install_emscripten.sh
 *.fas.gz
 *.tar.bz2
 
-# CABBAGE snapshots — hosted on Zenodo, kept local only
+# Database & CABBAGE snapshots — hosted on Zenodo, kept local only
 databases/cabbage/
 zenodo_cabbage_upload/
+zenodo_upload/
 
 # IDE / workspace
 .zcode/
