@@ -1,7 +1,7 @@
-/* assets.js — fetch helpers for static assets that may exceed Cloudflare
- * Pages' 25 MiB per-file cap (the VFDB index). scripts/build-dist.sh ships
- * such files as `<name>.part00`, `<name>.part01`, … ; these helpers fetch
- * the parts and reassemble them in order, so nothing elsewhere in the app
+/* assets.js — fetch helper for static assets that may exceed Cloudflare
+ * Pages' 25 MiB per-file cap (the VFDB index). The production build ships
+ * such files as `<name>.part00`, `<name>.part01`, … ; this helper fetches
+ * the parts and reassembles them in order, so nothing elsewhere in the app
  * needs to know about the cap.
  *
  * The plain URL is tried first, so local dev against the repo root
@@ -51,22 +51,6 @@ async function readStreamed(resp, total, onProgress) {
   let offset = 0;
   for (const c of chunks) { out.set(c, offset); offset += c.length; }
   return out;
-}
-
-export async function fetchAsset(path) {
-  const single = await fetch(path).catch(() => null);
-  if (single && respHasAsset(single)) return new Uint8Array(await single.arrayBuffer());
-
-  const responses = [];
-  for (let i = 0; i < 100; i++) {
-    const resp = await fetch(partPath(path, i)).catch(() => null);
-    if (!resp || !respHasAsset(resp)) break;
-    responses.push(resp);
-  }
-  if (!responses.length) {
-    throw new Error(`${path}: not found (HTTP ${single ? single.status : 'network error'})`);
-  }
-  return concat(await Promise.all(responses.map(r => r.arrayBuffer())));
 }
 
 export async function fetchAssetWithProgress(path, expectedBytes, onProgress) {

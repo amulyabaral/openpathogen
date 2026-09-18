@@ -85,7 +85,7 @@ export async function runComprehensive(files, readType, { onStep, runQc = true, 
 
 // ── QC summarisation ──
 
-export function summariseQc(report, paired) {
+export function summariseQc(report) {
   if (!report || !report.summary) return null;
   const b = report.summary.before_filtering;
   const a = report.summary.after_filtering;
@@ -104,7 +104,6 @@ export function summariseQc(report, paired) {
       ? report.adapter_cutting.adapter_trimmed_reads
       : null,
     duplication: dup,
-    paired,
   };
 }
 
@@ -119,6 +118,14 @@ export function qcVerdict(m) {
   else if (m.adapterBases != null && m.rawReads && m.adapterBases / m.rawReads > 0.2) {
     bits.push(`${(100 * m.adapterBases / m.rawReads).toFixed(1)}% of reads had adapter sequence trimmed`);
   }
-  if (m.duplication != null) bits.push(`duplication about ${(100 * m.duplication).toFixed(1)}%`);
+  if (m.duplication != null) bits.push(`duplication ${fmtPct(m.duplication)}`);
   return { tone, text: bits.join(' · ') };
+}
+
+// Percentage from a fraction; tiny non-zero rates show as "<0.1%" rather
+// than a misleading "0.0%".
+export function fmtPct(frac, digits = 1) {
+  const p = 100 * (frac || 0);
+  if (p > 0 && p < 0.1) return '<0.1%';
+  return p.toFixed(digits) + '%';
 }

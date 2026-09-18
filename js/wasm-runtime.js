@@ -30,10 +30,6 @@ function log(msg, level = 'info') {
   if (logCallback) logCallback(msg, level);
 }
 
-export function getDatabase(key) {
-  return DATABASES[key] || DATABASES.resfinder;
-}
-
 export function getDatabaseList() {
   return Object.entries(DATABASES).map(([key, db]) => ({ key, ...db }));
 }
@@ -61,12 +57,8 @@ export async function initWasm() {
   if (self.crossOriginIsolated) {
     log(`Ready. Memory64 build, up to ${threadCount()} threads`, 'ok');
   } else {
-    log('Cross-origin isolation is not active. The page should reload once to enable it; if this warning persists, multithreading/large-sample support is unavailable in this browser.', 'warn');
+    log('Cross-origin isolation is not active. The page should reload once to enable it. If this warning stays, this browser cannot run the multithreaded engine.', 'warn');
   }
-}
-
-export function isReady() {
-  return typeof Worker !== 'undefined' && !!self.crossOriginIsolated;
 }
 
 // ── Database bytes (IndexedDB cache or network) ──
@@ -75,8 +67,8 @@ export function isReady() {
 // that still ships databases/), then from Zenodo — free, DOI-cited hosting
 // with CORS-enabled downloads (the /api/records/…/files/<name>/content form;
 // the /records/…/files/ page path lacks CORS). Verified with MD5 against the
-// local indexes. To publish new indexes, run scripts/deploy-indexes-zenodo.sh
-// and update this record URL (build-dist.sh then stops shipping databases/).
+// local indexes. To publish new indexes, upload them to a new Zenodo record
+// and update this URL; the production build then stops shipping databases/.
 const INDEX_BASE = 'https://zenodo.org/api/records/22102687/files/';
 
 const DB_SHORT_NAMES = {
@@ -100,7 +92,7 @@ async function fetchDbFile(db, ext, onProgress) {
       await verifyPinned(path, data);
       return { data, fromCache: true };
     } catch (err) {
-      log(`Cached ${path} failed its integrity check — discarding it and re-downloading.`, 'warn');
+      log(`Cached ${path} failed its integrity check. Discarding it and downloading again.`, 'warn');
       try { await deleteDBFile(path); } catch (_) { /* best-effort eviction */ }
     }
   }

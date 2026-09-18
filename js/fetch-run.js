@@ -14,7 +14,7 @@
  */
 
 const API = 'https://www.ebi.ac.uk/ena/portal/api/filereport';
-const RUN_ACCESSION = /^[SEDR]RR\d+$/i;
+const RUN_ACCESSION = /^[SED]RR\d+$/i;
 
 export const MAX_FILE_BYTES = 1024 * 1024 * 1024; // 1 GB per file
 export const MAX_FILE_LABEL = '1 GB';

@@ -70,12 +70,15 @@ resfinder_db/phenotype_panels.txt
 /benchmark/
 /openpathogen_short_comms.md
 
-# Cloudflare deployment — local machine only, not published
+# Cloudflare deployment — local machine only, not published. The
+# reproducibility scripts (fetch/build CABBAGE snapshots, pin hashes) are
+# tracked; only the deploy/build plumbing stays local.
 dist/
 .wrangler/
 DEPLOY.md
 wrangler.toml
-scripts/
+scripts/deploy-*.sh
+scripts/build-dist.sh
 
 # fastp WASM build tree (only patch + artifacts are kept)
 fastp/build-src/

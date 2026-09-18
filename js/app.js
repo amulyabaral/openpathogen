@@ -6,7 +6,7 @@ import { fetchAssetWithProgress } from './assets.js';
 import { lookupRun } from './fetch-run.js';
 import { collectDetectedGenes, mountCabbageReport } from './cabbage-report.js';
 import {
-  runComprehensive, setFastpLog, summariseQc, qcVerdict, COMPREHENSIVE_DBS,
+  runComprehensive, setFastpLog, summariseQc, qcVerdict, fmtPct, COMPREHENSIVE_DBS,
 } from './comprehensive.js';
 
 const state = {
@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('btn-back')?.addEventListener('click', () => {
     document.getElementById('workspace').classList.remove('show-results');
+    window.scrollTo(0, 0); // stacked (phone) layout: back to the top of the form
   });
   document.getElementById('btn-clear-cache')?.addEventListener('click', clearCachedData);
   setupLogsToggle();
@@ -80,20 +81,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     await Promise.all([initWasm(), loadPhenotypesDB()]);
     state.wasmReady = true;
-    setStatus('Ready', 'ok');
     updateRunButton();
   } catch (err) {
-    setStatus('Error', 'error');
     term.push('Init failed: ' + err.message, 'error');
+    expandLogs();
   }
 });
-
-function setStatus(text, kind) {
-  const el = document.getElementById('wasm-status');
-  if (!el) return;
-  el.textContent = text;
-  el.className = 'badge badge-' + kind;
-}
 
 // ── Logs panel ──
 
@@ -264,6 +257,11 @@ function setupUploadSlots() {
       if (f) {
         state.files[slot] = f;
         setSlotName(slot, `${f.name} (${formatBytes(f.size)})`);
+        // The user's own file: forget the species and metadata of a previous
+        // example or ENA fetch so the CABBAGE card does not inherit them.
+        state.organism = null;
+        const meta = document.getElementById('run-meta');
+        if (meta) { meta.hidden = true; meta.textContent = ''; }
       } else {
         state.files[slot] = null;
         setSlotName(slot, 'No file');
@@ -306,7 +304,7 @@ function updateRunButton() {
       hint.textContent = 'Select at least one database to run the analysis.';
     } else if (!haveR1) {
       hint.hidden = false;
-      hint.textContent = 'Load reads to begin — choose files, fetch a public run, or load the example data.';
+      hint.textContent = 'Load reads to begin: choose files, fetch a public run, or load the example.';
     } else {
       hint.hidden = false;
       hint.textContent = 'Add the reverse reads (R2) file to run paired-end analysis.';
@@ -363,7 +361,7 @@ async function loadExample() {
         });
         term.push(`${spec.name} (${formatBytes(data.byteLength)})`, 'ok');
         try { await cacheDBFile(cacheKey, data); } catch (_) {
-          term.push('Could not cache the FASTQ in IndexedDB; next load will re-download.', 'warn');
+          term.push('Could not cache the FASTQ in the browser; the next load will download it again.', 'warn');
         }
       }
       const file = new File([data], spec.name, { type: 'application/gzip' });
@@ -375,7 +373,7 @@ async function loadExample() {
   } catch (err) {
     term.push('Failed to load example: ' + err.message, 'error');
     expandLogs();
-    term.push('ENA must be reachable from this browser (CORS). Try again later, or upload your own FASTQ.', 'info');
+    term.push('ENA could not be reached from this browser. Try again later, or choose your own FASTQ files.', 'info');
   } finally {
     btn.textContent = original;
     btn.disabled = false;
@@ -468,7 +466,7 @@ function downloadDb(key) {
     })
     .then(() => {
       state.dbCached.add(key);
-      term.push(`${meta.short} index cached — ready to run.`, 'ok');
+      term.push(`${meta.short} index cached.`, 'ok');
     })
     .catch((err) => {
       term.push(`Could not download the ${meta.short} index: ${err.message}`, 'error');
@@ -546,7 +544,7 @@ async function clearCachedData() {
     state.dbCached.clear();
     renderDbUi();
     term.push(`Cleared ${n} cached item${n === 1 ? '' : 's'} from this browser: database indexes, CABBAGE snapshots and any example or fetched-run reads.`, 'ok');
-    term.push('Selected databases re-download the next time they are used. Nothing was uploaded anywhere — the cache was only ever on this device.', 'info');
+    term.push('Selected databases download again the next time they are used. Nothing was uploaded; the cache was only on this device.', 'info');
   } catch (err) {
     term.push('Could not clear the cache: ' + err.message, 'error');
     expandLogs();
@@ -614,7 +612,7 @@ async function doFetchRun() {
         });
         term.push(`${spec.name} (${formatBytes(data.byteLength)})`, 'ok');
         try { await cacheDBFile(cacheKey, data); } catch (_) {
-          term.push('Could not cache this file in the browser; fetching it again will re-download it.', 'warn');
+          term.push('Could not cache this file in the browser; fetching it again will download it again.', 'warn');
         }
       }
       const file = new File([data], spec.name, { type: 'application/gzip' });
@@ -659,12 +657,21 @@ async function doRun() {
       id_threshold: parseInt(document.getElementById('slider-id').value) / 100,
       mrc: parseInt(document.getElementById('slider-cov').value) / 100,
     };
+    // A database selected moments ago may still be downloading; wait for it
+    // instead of fetching the same index a second time in parallel.
+    const pending = selectedDbs().map(k => DB_DOWNLOADS.get(k)).filter(Boolean);
+    if (pending.length) {
+      if (statusText) statusText.textContent = 'Waiting for the database download to finish…';
+      term.push('Waiting for the index download to finish…', 'info');
+      await Promise.all(pending.map(p => p.promise));
+    }
     const result = await runComprehensive(files, state.readType, {
       onStep, runQc, dbKeys: selectedDbs(), thresholds, fastpOptions,
     });
     if (statusText) statusText.textContent = 'Analyzing… this may take a moment.';
     renderComprehensive(result, { runQc });
     document.getElementById('workspace').classList.add('show-results');
+    window.scrollTo(0, 0); // stacked (phone) layout: results start at the top
   } catch (err) {
     term.push('Error: ' + err.message, 'error');
   } finally {
@@ -696,7 +703,7 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
   html += `
     <div class="downloads">
       <button class="btn btn-primary" data-zip>Download all results (ZIP)</button>
-      <p class="dl-nudge">The ZIP has everything from this run: the full result tables, fastp's JSON + HTML quality reports, the CABBAGE phenotype predictions and the run log. The clean reads are downloaded separately from the Quality control card below.</p>
+      <p class="dl-nudge">The ZIP contains the result tables, the fastp JSON and HTML reports, the CABBAGE table and the run log. Clean reads are downloaded separately from the Quality control card.</p>
     </div>`;
 
   // ── QC card (only when fastp was part of the run) ──
@@ -711,11 +718,11 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
         <div class="card-body">
           ${metrics ? `
           <div class="qc-grid">
-            <div class="qc-cell"><span class="qc-val">${fmtInt(metrics.rawReads)}</span><span class="qc-key">reads in</span></div>
-            <div class="qc-cell"><span class="qc-val">${(100 * metrics.retained).toFixed(1)}%</span><span class="qc-key">retained after trimming</span></div>
-            <div class="qc-cell"><span class="qc-val">${(100 * (metrics.q30After ?? 0)).toFixed(1)}%</span><span class="qc-key">Q30 (after)</span></div>
-            <div class="qc-cell"><span class="qc-val">${(100 * (metrics.gcBefore ?? 0)).toFixed(1)}%</span><span class="qc-key">GC content</span></div>
-            ${metrics.duplication != null ? `<div class="qc-cell"><span class="qc-val">${(100 * metrics.duplication).toFixed(1)}%</span><span class="qc-key">duplication</span></div>` : ''}
+            <div class="qc-cell"><span class="qc-val">${fmtCount(metrics.rawReads)}</span><span class="qc-key">reads in</span></div>
+            <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.retained)}</span><span class="qc-key">retained after trimming</span></div>
+            <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.q30After ?? 0)}</span><span class="qc-key">Q30 (after)</span></div>
+            <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.gcBefore ?? 0)}</span><span class="qc-key">GC content</span></div>
+            ${metrics.duplication != null ? `<div class="qc-cell"><span class="qc-val">${fmtPct(metrics.duplication)}</span><span class="qc-key">duplication</span></div>` : ''}
           </div>
           <p class="qc-verdict qc-${verdict.tone}">${esc(verdict.text)}</p>` : `
           <p class="qc-verdict qc-warn">${esc(verdict.text)}</p>`}
@@ -726,12 +733,12 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
             ${qc ? '<button class="qc-dl-btn" data-qc-dl="json">report.json ↓</button>' : ''}
             ${readBtns}
           </div>
-          <p class="opt-note">Clean reads are the trimmed FASTQs the databases were run against — the first 400,000 reads/pairs (WebAssembly memory limit). report.json records the exact fastp command and every filtering statistic.</p>` : ''}
+          <p class="opt-note">Clean reads are the trimmed FASTQs the databases were run against, covering the whole sample. report.json records the exact fastp command and every filtering statistic.</p>` : ''}
         </div>
       </section>`;
   }
 
-  // ── One section per database, reusing the advanced-mode table ──
+  // ── One section per database ──
   results.forEach((r, i) => {
     const db = COMPREHENSIVE_DBS.find(d => d.key === r.database) || { label: r.dbLabel };
     const ok = r.exitCode === 0;
@@ -763,11 +770,10 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
   }
   for (const r of results) {
     for (const [ext, info] of Object.entries(r.files || {})) {
-      if (r.files['.log'] && ext === '.log') continue;
       dlFiles[`${r.database}${ext}`] = info;
     }
   }
-  dlFiles['.log'] = { data: term.text(), binary: false };
+  dlFiles['openpathogen_run.log'] = { data: term.text(), binary: false };
 
   area.innerHTML = html;
 
@@ -811,7 +817,7 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
     });
   }
 
-  // The advanced-mode table bindings, scoped to each database section.
+  // Table bindings, scoped to each database section.
   results.forEach((r, i) => {
     const section = area.querySelector(`[data-section="${i}"]`);
     if (!section) return;
@@ -830,6 +836,7 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
     extra.forEach(tr => tr.classList.add('row-limited'));
     const cols = section.querySelectorAll('th').length;
     const moreRow = document.createElement('tr');
+    moreRow.className = 'show-more-row';
     moreRow.innerHTML = `<td colspan="${cols}"><button class="show-more-btn" type="button">Show all ${trs.length} genes</button></td>`;
     section.querySelector('tbody').appendChild(moreRow);
     const reveal = () => {
@@ -856,11 +863,9 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
   });
 }
 
-function fmtInt(n) {
-  if (n == null) return '—';
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + 'k';
-  return String(n);
+// Exact counts with thousands separators (515,164), never rounded to "515k".
+function fmtCount(n) {
+  return n == null ? '—' : Number(n).toLocaleString('en-US');
 }
 
 // Show a running indicator (spinner in the run button + indeterminate progress

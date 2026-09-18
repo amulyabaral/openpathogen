@@ -106,9 +106,7 @@ function buildArgs(inNames, outNames, options, { paired, nanopore }) {
     // proxied MEMFS writes serialise on the runtime thread anyway, so threads
     // buy no wall-clock win in the browser. --thread 1 keeps every run
     // byte-reproducible — the native-vs-WASM validation standard.
-    '--thread', '1',
-    // progress lines every 1M reads on big samples
-    '--verbose');
+    '--thread', '1');
 
   if (nanopore) {
     // fastp is Illumina-oriented; for ONT we only want honest statistics,

@@ -4,66 +4,109 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- Cross-origin isolation (COOP/COEP) so SharedArrayBuffer is available for
-       KMA's threads + Memory64. Injects the headers via a service worker, which
-       works on any static host (local python server, Render, GitHub Pages).
-       Reloads the page once on first visit to apply them. Must run first. -->
+       KMA's threads + Memory64. The production host sends the headers itself
+       (dist/_headers); on any other static host this service worker injects
+       them and reloads the page once on first visit. Must run first. -->
   <script src="coi-serviceworker.min.js"></script>
-  <title>openpathogen: free in-browser AMR &amp; virulence gene detection from FASTQ reads</title>
-  <meta name="description" content="Detect antimicrobial resistance (AMR) and virulence genes from FASTQ reads directly in your browser. Open source, no installation, no data upload.">
+  <title>openpathogen: in-browser AMR and virulence gene detection</title>
+  <meta name="description" content="Detect antimicrobial resistance and virulence genes in FASTQ reads, entirely in your browser. Free and open source, no installation, no data upload.">
+  <meta name="author" content="Amulya Baral">
+  <meta name="robots" content="index, follow, max-image-preview:large">
   <link rel="canonical" href="https://openpathogen.org/">
   <meta name="theme-color" content="#ffffff">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="openpathogen">
-  <meta property="og:title" content="openpathogen: free in-browser AMR &amp; virulence gene detection from FASTQ reads">
-  <meta property="og:description" content="Detect antimicrobial resistance (AMR) and virulence genes from FASTQ reads directly in your browser. Open source, no installation, no data upload.">
+  <meta property="og:title" content="openpathogen: in-browser AMR and virulence gene detection">
+  <meta property="og:description" content="Detect antimicrobial resistance and virulence genes in FASTQ reads, entirely in your browser. Free and open source, no installation, no data upload.">
   <meta property="og:url" content="https://openpathogen.org/">
   <meta property="og:image" content="https://openpathogen.org/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="openpathogen: browser-based AMR and virulence gene detection — reads never leave your machine">
+  <meta property="og:image:alt" content="openpathogen: browser-based AMR and virulence gene detection. Reads never leave your machine.">
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="openpathogen: free in-browser AMR &amp; virulence gene detection from FASTQ reads">
-  <meta name="twitter:description" content="Detect antimicrobial resistance (AMR) and virulence genes from FASTQ reads directly in your browser. Open source, no installation, no data upload.">
+  <meta name="twitter:title" content="openpathogen: in-browser AMR and virulence gene detection">
+  <meta name="twitter:description" content="Detect antimicrobial resistance and virulence genes in FASTQ reads, entirely in your browser. Free and open source, no installation, no data upload.">
   <meta name="twitter:image" content="https://openpathogen.org/og.png">
-  <meta name="twitter:image:alt" content="openpathogen: browser-based AMR and virulence gene detection — reads never leave your machine">
+  <meta name="twitter:image:alt" content="openpathogen: browser-based AMR and virulence gene detection. Reads never leave your machine.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="favicon.png">
-  <link rel="stylesheet" href="css/style.css?v=64">
+  <link rel="stylesheet" href="css/style.css?v=66">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "WebApplication",
     "@id": "https://openpathogen.org/#app",
     "name": "openpathogen",
+    "alternateName": "openpathogen.org",
     "url": "https://openpathogen.org/",
     "applicationCategory": "ScienceApplication",
+    "applicationSubCategory": "Bioinformatics",
     "operatingSystem": "Any (web browser)",
-    "browserRequirements": "Requires a modern browser with WebAssembly support",
-    "offers": { "@type": "Offer", "price": "0" },
-    "description": "Open-source web platform that detects antimicrobial resistance and virulence genes in sequencing reads, entirely in the browser with no installation and no data upload.",
+    "browserRequirements": "Requires a modern browser with WebAssembly and SharedArrayBuffer support",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "isAccessibleForFree": true,
+    "description": "Open-source web application that detects antimicrobial resistance and virulence genes in sequencing reads in the browser, with no installation and no data upload, and looks the genes up in the CABBAGE genotype-phenotype database.",
     "featureList": [
-      "fastp quality control",
-      "KMA read alignment",
-      "AMR gene detection (ResFinder, CARD)",
-      "Virulence gene detection (VFDB)",
-      "CABBAGE genotype-to-phenotype predictions",
-      "Interactive results table",
-      "Downloadable full output"
+      "fastp quality control and adapter trimming",
+      "KMA read alignment compiled to WebAssembly",
+      "AMR gene detection with ResFinder and CARD",
+      "Virulence gene detection with VFDB",
+      "CABBAGE phenotype associations and species antibiograms",
+      "Per-gene coverage, consensus, alignment and variant viewer",
+      "Public runs fetched by ENA/SRA accession",
+      "Downloadable ZIP with the full KMA output"
     ],
     "image": "https://openpathogen.org/og.png",
+    "screenshot": "https://openpathogen.org/og.png",
+    "datePublished": "2026-08-25",
+    "dateModified": "2026-09-18",
+    "inLanguage": "en",
     "author": { "@type": "Person", "name": "Amulya Baral", "url": "https://amulya.no" },
     "license": "https://github.com/amulyabaral/openpathogen/blob/main/LICENSE",
-    "isAccessibleForFree": true,
-    "keywords": "AMR detection, antimicrobial resistance genes, virulence genes, FASTQ, KMA, WebAssembly, bioinformatics, ResFinder, CARD, VFDB, CABBAGE, antibiotic resistance, pathogen profiling",
-    "sameAs": ["https://github.com/amulyabaral/openpathogen"]
+    "softwareHelp": { "@type": "CreativeWork", "url": "https://openpathogen.org/about.html" },
+    "keywords": "AMR detection, antimicrobial resistance genes, virulence genes, FASTQ, KMA, fastp, WebAssembly, bioinformatics, ResFinder, CARD, VFDB, CABBAGE, antibiotic resistance, pathogen profiling, genotype to phenotype",
+    "citation": [
+      "Clausen PTLC, Aarestrup FM, Lund O. Rapid and precise alignment of raw reads against redundant databases with KMA. BMC Bioinformatics. 2018;19:307. https://doi.org/10.1186/s12859-018-2336-6",
+      "Chen S, Zhou Y, Chen Y, Gu J. fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics. 2018;34(17):i884-i890. https://doi.org/10.1093/bioinformatics/bty560",
+      "Dickens E, et al. A comprehensive AMR genotype-phenotype database (CABBAGE). Nucleic Acids Research. 2026. https://doi.org/10.1093/nar/gkag780"
+    ],
+    "sameAs": ["https://github.com/amulyabaral/openpathogen", "https://zenodo.org/records/22102687"]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is my sequencing data uploaded anywhere?",
+        "acceptedAnswer": { "@type": "Answer", "text": "No. FASTQ files are read into browser memory, processed by WebAssembly and discarded when you close the tab. The only downloads are the app, the databases and, if you ask for one, a public run from ENA. The privacy section lists every request." }
+      },
+      {
+        "@type": "Question",
+        "name": "Which inputs are supported?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Illumina paired-end, single-end and Oxford Nanopore reads in FASTQ, plain or gzipped. You can also fetch any public run by its SRA or ENA accession. Files up to 1 GB each are handled in memory." }
+      },
+      {
+        "@type": "Question",
+        "name": "What do the results contain?",
+        "acceptedAnswer": { "@type": "Answer", "text": "A table of detected genes per database with identity, coverage and depth. A viewer per gene with coverage plot, consensus sequence, alignment and variants. fastp quality reports. CABBAGE phenotype associations. A ZIP with the full KMA output." }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I cite openpathogen?",
+        "acceptedAnswer": { "@type": "Answer", "text": "A short communication is in preparation. Until then, cite KMA (doi:10.1186/s12859-018-2336-6), fastp (doi:10.1093/bioinformatics/bty560) and CABBAGE (doi:10.1093/nar/gkag780), and the databases you used." }
+      }
+    ]
   }
   </script>
 </head>
 <body>
 
 <noscript>
-  <p class="lede" style="padding:12px 16px;border:1px solid var(--border);border-radius:var(--r);margin-bottom:20px">openpathogen analyzes FASTQ reads for antimicrobial resistance genes (ResFinder, CARD) and virulence factors (VFDB) entirely in your browser, with no installation and no data upload. It needs JavaScript and WebAssembly to run — please enable JavaScript.</p>
+  <p class="lede noscript-note">openpathogen analyzes FASTQ reads for antimicrobial resistance genes (ResFinder, CARD) and virulence factors (VFDB) entirely in your browser, with no installation and no data upload. It needs JavaScript and WebAssembly to run. Please enable JavaScript.</p>
 </noscript>
 
 <header class="topbar">
@@ -71,10 +114,10 @@
     <img src="openpathogen_logo.png" alt="" class="brand-logo">
     <span class="brand-name">openpathogen</span>
   </a>
-  <span class="brand-sub">Open-source, privacy-preserving and zero-install pathogen profiling in the web browser</span>
-  <nav class="topbar-nav">
+  <span class="brand-sub">AMR and virulence genes from sequencing reads, in your browser</span>
+  <nav class="topbar-nav" aria-label="Site">
     <a class="topbar-link no-arrow" href="https://github.com/amulyabaral/openpathogen" target="_blank" rel="noopener" aria-label="GitHub repository"><svg class="gh-icon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
-    <a class="topbar-link no-arrow" href="about.html" target="_blank" rel="noopener">About</a>
+    <a class="topbar-link no-arrow" href="about.html">About</a>
   </nav>
 </header>
 
@@ -85,19 +128,19 @@
     <div class="pane pane-config">
 
     <div class="hero">
-      <h1 class="hero-title">Antimicrobial resistance &amp; virulence gene detection</h1>
-      <p class="lede">Openpathogen is an open source platform that screens sequencing reads against pre-indexed AMR and virulence gene databases. It runs entirely client-side, requires no installation, no accounts and no data upload.</p>
+      <h1 class="hero-title">Antimicrobial resistance and virulence gene detection in your browser</h1>
+      <p class="lede">openpathogen finds antimicrobial resistance and virulence genes in sequencing reads. It runs in your browser. Nothing is installed and your reads are never uploaded.</p>
     </div>
 
-    <section class="card" id="run">
+    <section class="card" id="run" aria-label="Run an analysis">
       <div class="card-body">
 
       <div class="row">
-        <span class="label">Choose input type</span>
-        <div class="seg" id="read-type" role="group" aria-label="Input type">
-          <button class="seg-btn active" data-type="paired" aria-pressed="true">Illumina paired</button>
-          <button class="seg-btn" data-type="single" aria-pressed="false">Single-end</button>
-          <button class="seg-btn" data-type="nanopore" aria-pressed="false">Nanopore</button>
+        <span class="label" id="read-type-label">Choose input type</span>
+        <div class="seg" id="read-type" role="group" aria-labelledby="read-type-label">
+          <button class="seg-btn active" type="button" data-type="paired" aria-pressed="true">Illumina paired</button>
+          <button class="seg-btn" type="button" data-type="single" aria-pressed="false">Single-end</button>
+          <button class="seg-btn" type="button" data-type="nanopore" aria-pressed="false">Nanopore</button>
         </div>
       </div>
 
@@ -105,7 +148,7 @@
         <div class="slot" data-slot="r1">
           <div class="slot-title">Forward reads (R1)</div>
           <div class="slot-body">
-            <button class="btn btn-secondary" data-pick="r1">Choose file</button>
+            <button class="btn" type="button" data-pick="r1">Choose file</button>
             <span class="slot-name" data-name="r1">No file</span>
           </div>
           <input type="file" hidden data-input="r1" accept=".fastq,.fq,.gz,application/gzip,application/x-gzip">
@@ -113,7 +156,7 @@
         <div class="slot" data-slot="r2">
           <div class="slot-title">Reverse reads (R2)</div>
           <div class="slot-body">
-            <button class="btn btn-secondary" data-pick="r2">Choose file</button>
+            <button class="btn" type="button" data-pick="r2">Choose file</button>
             <span class="slot-name" data-name="r2">No file</span>
           </div>
           <input type="file" hidden data-input="r2" accept=".fastq,.fq,.gz,application/gzip,application/x-gzip">
@@ -121,35 +164,35 @@
       </div>
 
       <div class="row fetch-row">
-        <span class="label">Or fetch a public run</span>
+        <label class="label" for="run-accession">Fetch public run</label>
         <input type="text" id="run-accession" placeholder="Run accession (SRR…, ERR…, DRR…)" spellcheck="false" autocomplete="off" enterkeyhint="go">
         <button class="btn" id="btn-fetch-run" type="button" title="Fetch sequencing reads from a public run. ENA is queried for organism, platform and layout, and the read type is set automatically. Files are limited to 1 GB each.">Fetch reads</button>
         <button class="btn" id="btn-example" type="button" title="Load the example isolate: S. aureus USA300_TCH1516 (SRR10341524), a 48 MB community-associated MRSA run downloaded from ENA and cached in your browser.">Load example (SRR10341524)</button>
       </div>
       <div class="fetch-meta" id="run-meta" hidden></div>
 
-      <div class="row" style="align-items:flex-start">
-        <span class="label" style="padding-top:7px">Quality control</span>
+      <div class="row row-top">
+        <span class="label">Quality control</span>
         <div class="opt-group">
           <label class="check-row">
             <input type="checkbox" id="opt-fastp">
             <span>Run fastp before alignment</span>
           </label>
-          <p class="opt-note">Trims adapters and filters low-quality reads before alignment. Recommended.</p>
-          <button class="fastp-toggle" id="fastp-toggle" type="button" aria-expanded="false" hidden>
-            fastp settings <span class="fastp-caret" aria-hidden="true">▾</span>
+          <p class="opt-note">Trims adapters and removes low-quality reads before alignment. Recommended.</p>
+          <button class="fastp-toggle" id="fastp-toggle" type="button" aria-expanded="false" aria-controls="fastp-config" hidden>
+            fastp settings <svg class="chev fastp-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
 
           <div id="fastp-config" hidden>
             <div class="fastp-panel" id="fastp-panel">
-              <p class="opt-note"><b>Defaults:</b> adapter trimming with auto-detection · quality filtering (min Phred 15, max 40% low-quality bases, max 5 Ns) · length filtering (min 15 bp) · poly-G trimming automatic · base correction off. The values below are fastp's defaults — turn any group off to pass reads through unfiltered.</p>
+              <p class="opt-note"><b>Defaults:</b> adapter trimming with auto-detection · quality filtering (min Phred 15, max 40% low-quality bases, max 5 Ns) · length filtering (min 15 bp) · poly-G trimming automatic · base correction off. These are fastp's defaults. Turn a group off to skip that step.</p>
 
               <div class="fp-group">
                 <label class="check-row fp-group-head"><input type="checkbox" id="fp-trim" checked><span>Adapter trimming</span></label>
                 <div class="fp-fields" id="fp-adapter-fields">
                   <label class="fp-field">Adapter R1<input type="text" id="fp-adapter-r1" spellcheck="false" autocomplete="off" maxlength="100" placeholder="auto · AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"></label>
                   <label class="fp-field" id="fp-field-adapter-r2">Adapter R2<input type="text" id="fp-adapter-r2" spellcheck="false" autocomplete="off" maxlength="100" placeholder="auto · AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT"></label>
-                  <p class="opt-note">Blank = auto: paired runs get fastp's per-run adapter detection, single-end uses the Illumina TruSeq default shown. Enter 5–100 IUPAC bases (e.g. a Nextera or custom index) to force your own — explicit sequences override auto-detection.</p>
+                  <p class="opt-note">Leave blank for auto-detection (paired runs) or the Illumina TruSeq default shown (single-end). Enter 5 to 100 IUPAC bases, for example a Nextera or custom adapter, to use your own sequence.</p>
                 </div>
               </div>
 
@@ -175,7 +218,7 @@
                 <div class="fp-fields">
                   <label class="fp-field">Poly-G tail trimming
                     <select id="fp-polyg">
-                      <option value="auto" selected>Auto — fastp trims for NextSeq/NovaSeq</option>
+                      <option value="auto" selected>Auto: fastp trims for NextSeq/NovaSeq</option>
                       <option value="on">Always trim</option>
                       <option value="off">Never trim</option>
                     </select>
@@ -186,20 +229,21 @@
                 </div>
               </div>
 
-              <p class="opt-note">Statistics and trimming cover your entire sample — the same trimmed reads the databases are run against. The precise fastp command for your settings is printed in the Logs and stored in both reports.</p>
+              <p class="opt-note">fastp processes the whole sample, and the databases are run on the trimmed reads. The exact fastp command is printed in the Logs and stored in both reports.</p>
             </div>
-            <p class="opt-note" id="fastp-ont-note" hidden>Nanopore reads: fastp is Illumina-oriented, so openpathogen runs it for statistics only — reads pass through untrimmed and unfiltered, and the databases see every read.</p>
+            <p class="opt-note" id="fastp-ont-note" hidden>Nanopore reads: fastp is made for Illumina data, so it only reports statistics here. Reads are not trimmed or filtered, and the databases see every read.</p>
           </div>
         </div>
       </div>
 
-      <div class="row" style="align-items:flex-start">
-        <span class="label" style="padding-top:7px">Databases</span>
+      <div class="row row-top">
+        <span class="label" id="db-label">Databases</span>
         <div class="opt-group db-group">
           <div class="db-select" id="db-select">
-            <button class="db-select-btn" id="db-select-btn" type="button" aria-haspopup="listbox" aria-expanded="false">
+            <button class="db-select-btn" id="db-select-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="db-menu">
+              <span class="sr-only">Selected databases:</span>
               <span class="db-chips" id="db-chips"></span>
-              <span class="db-caret" aria-hidden="true">▾</span>
+              <svg class="chev db-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
             <div class="db-menu" id="db-menu" role="listbox" aria-multiselectable="true" aria-label="Gene databases" hidden>
               <div class="db-group-label">AMR gene databases</div>
@@ -242,7 +286,7 @@
       </div><!-- /kma-options -->
 
       <div class="run-row">
-        <button class="btn btn-primary" id="btn-run" disabled>Analyze sample</button>
+        <button class="btn btn-primary" id="btn-run" type="button" disabled>Analyze sample</button>
       </div>
       <p class="opt-note" id="run-hint" hidden></p>
 
@@ -254,13 +298,48 @@
       </div>
     </section>
 
+    <section class="home-info" id="how-it-works" aria-labelledby="how-title">
+      <h2 id="how-title">How openpathogen works</h2>
+      <div class="info-grid">
+        <div>
+          <h3>Runs in your browser</h3>
+          <p>fastp and KMA are compiled to WebAssembly and run on your computer. Reads stay in memory and are never sent anywhere. There is no account and no server.</p>
+        </div>
+        <div>
+          <h3>Databases</h3>
+          <p>ResFinder and CARD for acquired resistance genes, VFDB for virulence factors. Each index is downloaded once, checked against a pinned SHA-256 hash and cached in the browser.</p>
+        </div>
+        <div>
+          <h3>Phenotype context</h3>
+          <p>Resistance genes are looked up in CABBAGE, which links 170,000 sequenced isolates to their susceptibility test results. For each gene and antibiotic you see how often carriers of the gene tested resistant.</p>
+        </div>
+      </div>
+      <h2 id="faq-title">Frequently asked questions</h2>
+      <dl class="faq" aria-labelledby="faq-title">
+        <dt>Is my sequencing data uploaded anywhere?</dt>
+        <dd>No. FASTQ files are read into browser memory, processed by WebAssembly and discarded when you close the tab. The only downloads are the app, the databases and, if you ask for one, a public run from ENA. The <a class="no-arrow" href="about.html#privacy">privacy section</a> lists every request.</dd>
+        <dt>Which inputs are supported?</dt>
+        <dd>Illumina paired-end, single-end and Oxford Nanopore reads in FASTQ, plain or gzipped. You can also fetch any public run by its SRA or ENA accession. Files up to 1 GB each are handled in memory.</dd>
+        <dt>What do the results contain?</dt>
+        <dd>A table of detected genes per database with identity, coverage and depth. A viewer per gene with coverage plot, consensus sequence, alignment and variants. fastp quality reports. CABBAGE phenotype associations. A ZIP with the full KMA output.</dd>
+        <dt>How do I cite openpathogen?</dt>
+        <dd>A short communication is in preparation. Until then, cite <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a>, <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> and <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">CABBAGE</a>, and the databases you used.</dd>
+      </dl>
+      <footer class="site-footer">
+        <span>© 2026 <a href="https://amulya.no" target="_blank" rel="noopener">Amulya Baral</a></span>
+        <a class="no-arrow" href="about.html">About and documentation</a>
+        <a href="https://github.com/amulyabaral/openpathogen" target="_blank" rel="noopener">Source code (MIT)</a>
+        <a href="https://zenodo.org/records/22102687" target="_blank" rel="noopener">Database indexes on Zenodo</a>
+      </footer>
+    </section>
+
     </div><!-- /pane-config -->
 
     <div class="pane pane-results">
       <div class="results-toolbar">
-        <button class="btn btn-secondary" id="btn-back" type="button">← Run another sample/database</button>
+        <button class="btn" id="btn-back" type="button">← Run another sample/database</button>
       </div>
-      <section id="results" class="results-block"></section>
+      <section id="results" class="results-block" aria-label="Results"></section>
     </div>
 
    </div><!-- /workspace -->
@@ -268,16 +347,16 @@
    <div class="terminal-card collapsed" id="terminal-card">
      <button class="terminal-header" id="terminal-toggle" type="button" aria-expanded="false" aria-controls="terminal">
        <span>Logs</span>
-       <span class="terminal-caret" aria-hidden="true">▾</span>
+       <svg class="chev terminal-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
      </button>
-     <div class="terminal" id="terminal"></div>
+     <div class="terminal" id="terminal" role="log" aria-live="polite"></div>
    </div>
   </main>
 
 </div>
 
 <script src="js/vendor/fflate.min.js"></script>
-  <script type="module" src="js/app.js?v=57"></script>
+  <script type="module" src="js/app.js?v=59"></script>
 
 </body>
 </html>

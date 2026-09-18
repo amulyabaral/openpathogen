@@ -136,6 +136,7 @@ function variantType(ref, alt) {
 // ── Modal UI ──
 
 let activeOverlay = null;
+let lastFocus = null; // element to give focus back to when the dialog closes
 
 function buildModal({ template, row, consensus, alnBlock, depth, variants }) {
   closeViewer();
@@ -147,18 +148,18 @@ function buildModal({ template, row, consensus, alnBlock, depth, variants }) {
   const overlay = document.createElement('div');
   overlay.className = 'gv-overlay';
   overlay.innerHTML = `
-    <div class="gv-modal" role="dialog" aria-label="Gene detail">
+    <div class="gv-modal" role="dialog" aria-modal="true" aria-label="Gene detail">
       <div class="gv-head">
         <div class="gv-title">${esc(template)}</div>
-        <button class="gv-close" aria-label="Close">×</button>
+        <button class="gv-close" type="button" aria-label="Close">×</button>
       </div>
       <div class="gv-stats">${renderStats(row, meanDepth)}</div>
       ${renderAnnotation(row)}
       <div class="gv-tabs">
-        <button class="gv-tab active" data-tab="cov">Coverage</button>
-        <button class="gv-tab" data-tab="seq">Consensus</button>
-        <button class="gv-tab" data-tab="aln">Alignment</button>
-        <button class="gv-tab" data-tab="var">Variants <span class="gv-count">${variants.length}</span></button>
+        <button class="gv-tab active" type="button" data-tab="cov">Coverage</button>
+        <button class="gv-tab" type="button" data-tab="seq">Consensus</button>
+        <button class="gv-tab" type="button" data-tab="aln">Alignment</button>
+        <button class="gv-tab" type="button" data-tab="var">Variants <span class="gv-count">${variants.length}</span></button>
       </div>
       <div class="gv-body">
         ${haveAny ? '' : '<p class="empty">No sequence-level data was produced for this hit.</p>'}
@@ -171,7 +172,7 @@ function buildModal({ template, row, consensus, alnBlock, depth, variants }) {
         </div>
         <div class="gv-panel" data-panel="seq" hidden>
           ${consensus
-            ? `<div class="gv-seqtools"><span class="gv-hint"><span class="gv-lc">lowercase</span> = low-confidence base</span><button class="btn btn-secondary gv-copy">Copy FASTA</button></div>
+            ? `<div class="gv-seqtools"><span class="gv-hint"><span class="gv-lc">lowercase</span> = low-confidence base</span><button class="btn gv-copy" type="button">Copy FASTA</button></div>
                <div class="gv-seq">${renderConsensus(consensus)}</div>`
             : '<p class="empty">No consensus sequence available.</p>'}
         </div>
@@ -186,6 +187,8 @@ function buildModal({ template, row, consensus, alnBlock, depth, variants }) {
 
   document.body.appendChild(overlay);
   activeOverlay = overlay;
+  lastFocus = document.activeElement;
+  overlay.querySelector('.gv-close').focus();
 
   // Interactions
   overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeViewer(); });
@@ -283,13 +286,26 @@ function activateTab(overlay, name) {
   }
 }
 
-function onKey(e) { if (e.key === 'Escape') closeViewer(); }
+// Escape closes; Tab cycles inside the dialog so keyboard focus cannot wander
+// into the page behind the overlay.
+function onKey(e) {
+  if (e.key === 'Escape') { closeViewer(); return; }
+  if (e.key !== 'Tab' || !activeOverlay) return;
+  const focusable = [...activeOverlay.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+    .filter(el => !el.disabled && el.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
 
 function closeViewer() {
   if (!activeOverlay) return;
   document.removeEventListener('keydown', onKey);
   activeOverlay.remove();
   activeOverlay = null;
+  if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
+  lastFocus = null;
 }
 
 // ── Coverage plot ──
@@ -358,7 +374,8 @@ function drawCoverage(overlay, depth, variants, mean) {
 
     // axis labels
     ctx.fillStyle = '#999';
-    ctx.font = '10px ui-monospace,Menlo,monospace';
+    const mono = (getComputedStyle(document.documentElement).getPropertyValue('--mono') || '').trim() || 'ui-monospace,Menlo,monospace';
+    ctx.font = `11px ${mono}`;
     ctx.textBaseline = 'middle';
     ctx.fillText(String(maxD), 4, padT);
     ctx.fillText('0', 4, padT + h);

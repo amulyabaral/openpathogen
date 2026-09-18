@@ -9,7 +9,7 @@
  *
  * Updating the pins: after rebuilding or re-deploying any database, run
  * scripts/pin-hashes.sh — it regenerates the table below from the local
- * files. Bump the app.js/css version query in index.html when shipping.
+ * files.
  */
 
 const PINNED_SHA256 = {
@@ -27,8 +27,8 @@ const PINNED_SHA256 = {
   'databases/VFDB_setA_nt.fas.gz.name': '48d09fa30ca97adff28ede5cb5c0e4e31a7b0c217de5761141df62f1cdbf8317',
   'databases/VFDB_setA_nt.fas.gz.seq.b': 'd5b1567d6e59fbfdec0ae5613cb558a6206df6dbc13ae9eeba54eb8a42087520',
   // CABBAGE snapshots + manifest
-  'databases/cabbage/manifest.json': '2a8f5577c4eccaa2cbeb5b86338c9684150071b25d58da5e1c63d6d3880fa0d3',
-  'databases/cabbage/associations.json.gz': 'a638e157174dc23e52cd733e3edda43d1176fbdb0aad518446f58faf380aa84b',
+  'databases/cabbage/manifest.json': '7ee097cacfd9f269a5e856bc52252f3cbf0197620137c9d7b46e8a4e4549f390',
+  'databases/cabbage/associations.json.gz': '7061c2b736b8a60a8e6aa595065cd7f1cc909ec0cef18c94277956bcefb76222',
   'databases/cabbage/combined.cbg.gz': 'a29d44bb3dd1fa1aef81e0aa9cb1dd96fd49da755da5b5f6ec159616be403892',
   'databases/cabbage/genotypes.cbg.gz': 'b47c242a9e3daa2141a27cc47f34281b1c5116ddb7b4a558fd006f087f598bb9',
   'databases/cabbage/phenotypes.cbg.gz': 'e28b866d5c7dd584a5f17f8cd848ed0353728fabd95518acf38ab8eaac1c380a',

@@ -5,9 +5,10 @@
  *
  * The snapshot (CBG1, see scripts/build-cabbage.py) stores each portal view
  * as column dictionaries plus varint row indices. This module decodes it
- * and powers the "Phenotype prediction (CABBAGE)" card in the results tab:
- *   - the precomputed gene→phenotype association table (join of ~165k
- *     isolates that have both a genome and an antibiogram), and
+ * and powers the "Phenotype associations (CABBAGE)" card in the results:
+ *   - the precomputed gene→phenotype association table (join of the
+ *     isolates that have both a genome and an antibiogram), keyed by the
+ *     AMRFinderPlus element symbol, with each gene's linked antibiotics;
  *   - the full phenotypes view, for country / year / isolation-source
  *     filtered species antibiograms.
  *
@@ -24,8 +25,8 @@ import { fetchAssetWithProgress } from './assets.js';
 import { verifyPinned } from './integrity.js';
 
 // Snapshot files: same-origin databases/cabbage/ first (local dev / any
-// static host that ships them), then Zenodo (set by
-// scripts/deploy-cabbage-zenodo.sh; the /api/records/…/files/<name>/content
+// static host that ships them), then Zenodo (set when the snapshot is
+// published to a Zenodo record; the /api/records/…/files/<name>/content
 // form is the CORS-enabled one).
 const CABBAGE_BASE = '';
 
@@ -205,12 +206,13 @@ function keys(col) {
 
 // ── Gene→phenotype associations (results-card engine) ──
 //
-// The association table is precomputed at snapshot-build time by joining the
-// genotypes and phenotypes views on BioSample (~165k isolates have both a
-// genome and an antibiogram — far richer than the portal's own merged view).
-// Each row: for (species, gene), how many isolates carrying that gene were
-// recorded R / I / S per antibiotic, phenotypes taken from the updated
-// (2025 CLSI/EUCAST) breakpoint reinterpretation first.
+// Precomputed at snapshot-build time (scripts/build-cabbage.py) by joining
+// the genotypes and phenotypes views on BioSample. Each row: for (species,
+// gene, antibiotic), how many isolates carrying the gene were recorded
+// R / I / S, with phenotypes taken from the 2025 CLSI/EUCAST reinterpretation
+// first. Genes are AMRFinderPlus element symbols (acquired genes only); each
+// gene also carries its AMRFinderPlus class and the antibiotic names the
+// portal links it to.
 
 let associationsCache = null;
 
@@ -220,7 +222,7 @@ export async function loadAssociations(onProgress) {
   try { expectedBytes = (await getManifest()).associations?.bytes || 0; } catch (_) {}
   const gz = await fetchSnapshotBytes('associations.json.gz', expectedBytes, onProgress);
   const parsed = JSON.parse(window.fflate.strFromU8(window.fflate.gunzipSync(gz)));
-  // Lookup: "species\x00gene" -> rows; plus per-species row lists.
+  // Lookup: "species\x00gene" -> rows.
   const bySpeciesGene = new Map();
   const speciesSet = new Set();
   for (const row of parsed.rows) {
@@ -230,11 +232,20 @@ export async function loadAssociations(onProgress) {
     if (!list) bySpeciesGene.set(key, list = []);
     list.push(row);
   }
+  const genes = new Map();
+  for (const g of parsed.genes || []) {
+    genes.set(g.gene, { symbol: g.symbol || g.gene, cls: g.class || '', links: new Set(g.links || []) });
+  }
   associationsCache = {
+    version: parsed.version || 1,
+    minN: parsed.min_n || 20,
     release: null, // filled by callers from the manifest
     species: parsed.species.filter(s => speciesSet.has(s)),
     bySpeciesGene,
+    genes,
     background: parsed.background,
+    backgroundSeq: parsed.background_seq || parsed.background,
+    keyIndex: new Map(),
   };
   return associationsCache;
 }
@@ -244,7 +255,7 @@ export async function loadAssociations(onProgress) {
 // "vanA", "erm(C)" -> "ermC", "ermC'" -> "ermC") so AMRFinderPlus and
 // ResFinder/CARD spelling variants unify.
 export function geneCanon(g) {
-  let s = String(g).replace(/['\u2019()]/g, '');
+  let s = String(g).replace(/['’()]/g, '');
   for (;;) {
     const m = s.match(/^(.*)_(\d+)$/);
     if (!m) break;
@@ -270,50 +281,126 @@ export function templateGene(template, db) {
   return template.split('_')[0];
 }
 
-// Match a detected gene against the association vocabulary. Exact canonical
-// match first; then a single trailing digit is dropped as a fallback
-// ("ermA1" vs ResFinder's "ermA") — the matched symbol is always shown, so
-// a loose match is visible to the user.
+// ── Matching detected genes to CABBAGE symbols ──
+//
+// ResFinder, CARD and AMRFinderPlus spell the same gene differently. The
+// lookup tries, in order: a known alias, the canonical symbol, the symbol
+// without its trailing allele letter (aph(3')-IIIa vs aph(3')-III), the
+// symbol without a trailing number (ermA1 vs ermA), and a "bla" prefix for
+// beta-lactamases named without it (CARD SHV-52 vs blaSHV-52). Fusion
+// symbols in CABBAGE (aac(6')-Ie/aph(2'')-Ia) are also indexed by each
+// half. The matched CABBAGE symbol is always shown, so a loose match is
+// visible to the user.
+
+const ALIASES = {
+  'aac6-aph2': 'aac6-Ie/aph2-Ia',         // ResFinder aac(6')-aph(2'')
+  'aac6-ie-aph2-ia': 'aac6-Ie/aph2-Ia',   // CARD AAC(6')-Ie-APH(2'')-Ia
+};
+
+// Canonical symbol without a trailing allele letter after a roman numeral
+// or digit, lower-cased: "aph3-IIIa" -> "aph3-iii", "blaTEM-1B" -> "blatem-1".
+function looseKey(c) {
+  return c.replace(/([IVX]|\d)[A-Za-z]$/, '$1').toLowerCase();
+}
+
+// Candidate lookup keys for a detected gene, most specific first.
+export function geneKeys(name) {
+  const c = geneCanon(name);
+  const lc = c.toLowerCase();
+  const out = [];
+  const add = (k) => { if (k && !out.includes(k)) out.push(k); };
+  if (ALIASES[lc]) add(ALIASES[lc].toLowerCase());
+  add(lc);
+  add(looseKey(c));
+  const d = c.replace(/\d+$/, '');
+  if (d && d !== c) { add(d.toLowerCase()); add(looseKey(d)); }
+  if (!/^bla/i.test(c)) { add('bla' + lc); add('bla' + looseKey(c)); }
+  return out;
+}
+
+function speciesIndex(assoc, species) {
+  if (!assoc.keyIndex) assoc.keyIndex = new Map();
+  let idx = assoc.keyIndex.get(species);
+  if (idx) return idx;
+  idx = new Map();
+  const prefix = species + '\x00';
+  const reg = (k, g) => {
+    if (!k) return;
+    let l = idx.get(k);
+    if (!l) idx.set(k, l = []);
+    if (!l.includes(g)) l.push(g);
+  };
+  for (const key of assoc.bySpeciesGene.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    const g = key.slice(prefix.length);
+    reg(g.toLowerCase(), g);
+    reg(looseKey(g), g);
+    if (g.includes('/')) {
+      for (const part of g.split('/')) { reg(part.toLowerCase(), g); reg(looseKey(part), g); }
+    }
+  }
+  assoc.keyIndex.set(species, idx);
+  return idx;
+}
+
+function evidence(assoc, species, gene) {
+  return (assoc.bySpeciesGene.get(species + '\x00' + gene) || [])
+    .reduce((n, r) => Math.max(n, r.r + r.i + r.s), 0);
+}
+
+// The CABBAGE gene (canonical symbol) a detected gene corresponds to for
+// this species, or null. Ambiguous loose matches resolve to the gene with
+// the most tested isolates.
 export function matchAssociationGene(assoc, species, gene) {
-  const canon = geneCanon(gene);
-  const key = species + '\x00' + canon;
-  if (assoc.bySpeciesGene.has(key)) return canon;
-  const stripped = canon.replace(/\d+$/, '');
-  if (stripped && stripped !== canon && assoc.bySpeciesGene.has(species + '\x00' + stripped)) {
-    return stripped;
+  const idx = speciesIndex(assoc, species);
+  for (const k of geneKeys(gene)) {
+    const cands = idx.get(k);
+    if (!cands || !cands.length) continue;
+    if (cands.length === 1) return cands[0];
+    return cands.slice().sort((a, b) => evidence(assoc, species, b) - evidence(assoc, species, a))[0];
   }
   return null;
 }
 
-// Predicted phenotypic resistance for one species from the detected genes.
-// Returns one entry per antibiotic with >=1 informative gene (n >= minN),
-// plus the species background rate where available.
-export function predictPhenotypes(assoc, species, detectedGenes, minN = 20) {
+// Display spelling and metadata for a CABBAGE gene.
+export function geneInfo(assoc, gene) {
+  return assoc.genes?.get(gene) || { symbol: gene, cls: '', links: new Set() };
+}
+
+// Per antibiotic, the association between the detected genes and the
+// recorded phenotype for one species. rate = share of carriers recorded
+// resistant (strongest gene); rateNS adds intermediate. The background is
+// the sequenced cohort of the species (backgroundSeq), the population the
+// carriers are drawn from.
+export function predictPhenotypes(assoc, species, detectedGenes, minN = assoc.minN || 20) {
   const byAntibiotic = new Map();
   for (const g of detectedGenes) {
     const matched = matchAssociationGene(assoc, species, g.name);
     if (!matched) continue;
+    const symbol = geneInfo(assoc, matched).symbol;
     for (const row of assoc.bySpeciesGene.get(species + '\x00' + matched) || []) {
       const n = row.r + row.i + row.s;
       if (n < minN) continue;
       let e = byAntibiotic.get(row.antibiotic);
       if (!e) byAntibiotic.set(row.antibiotic, e = { antibiotic: row.antibiotic, genes: [] });
-      e.genes.push({ gene: matched, detectedAs: g.name, db: g.db, r: row.r, i: row.i, s: row.s, n });
+      e.genes.push({ gene: matched, symbol, detectedAs: g.name, db: g.db, r: row.r, i: row.i, s: row.s, n });
     }
   }
-  const bg = new Map(assoc.background
+  const bg = new Map((assoc.backgroundSeq || assoc.background)
     .filter(b => b.species === species)
     .map(b => [b.antibiotic, b]));
   const out = [...byAntibiotic.values()].map(e => {
     e.genes.sort((a, b) => b.n - a.n);
-    const strongest = e.genes.reduce((acc, g) => Math.max(acc, (g.r + g.i) / g.n), 0);
-    const evidence = e.genes.reduce((acc, g) => Math.max(acc, g.n), 0);
+    const rate = e.genes.reduce((acc, g) => Math.max(acc, g.r / g.n), 0);
+    const rateNS = e.genes.reduce((acc, g) => Math.max(acc, (g.r + g.i) / g.n), 0);
+    const evidenceN = e.genes.reduce((acc, g) => Math.max(acc, g.n), 0);
     const b = bg.get(e.antibiotic);
     return {
       ...e,
-      rate: strongest,
-      evidence,
-      verdict: strongest >= 0.85 ? 'resistant' : strongest >= 0.4 ? 'uncertain' : 'susceptible',
+      rate,
+      rateNS,
+      evidence: evidenceN,
+      verdict: rate >= 0.85 ? 'resistant' : rateNS >= 0.4 ? 'uncertain' : 'susceptible',
       background: b ? { r: b.r, i: b.i, s: b.s, n: b.r + b.i + b.s } : null,
     };
   });
@@ -323,13 +410,12 @@ export function predictPhenotypes(assoc, species, detectedGenes, minN = 20) {
   return out;
 }
 
-// Which detected genes found no CABBAGE data for this species (so the card
-// can list them with their ResFinder drug class instead).
+// Which detected genes found no CABBAGE data for this species.
 export function unmatchedGenes(assoc, species, detectedGenes) {
   return detectedGenes.filter(g => !matchAssociationGene(assoc, species, g.name));
 }
 
-// Instant background antibiogram for a species (all 1.7M AST records,
+// Instant background antibiogram for a species (all AST records,
 // aggregated at build time — no phenotype-view download needed).
 export function backgroundAntibiogram(assoc, species) {
   return assoc.background
