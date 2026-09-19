@@ -82,3 +82,6 @@ scripts/build-dist.sh
 
 # fastp WASM build tree (only patch + artifacts are kept)
 fastp/build-src/
+
+# wasm32 KMA objects (Makefile.wasm32)
+kma/build32/

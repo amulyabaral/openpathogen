@@ -1,0 +1,1237 @@
+diff -ru fastp64/src/common.h fastp32/src/common.h
+--- a/src/common.h	2026-09-19 20:25:14
++++ b/src/common.h	2026-09-19 20:25:24
+@@ -6,8 +6,8 @@
+ #define _DEBUG false
+ 
+ #ifndef _WIN32
+-	typedef long int64;
+-	typedef unsigned long uint64;
++	typedef long long int64;
++	typedef unsigned long long uint64;
+ #else
+ 	typedef long long int64;
+ 	typedef unsigned long long uint64;
+diff -ru fastp64/src/duplicate.cpp fastp32/src/duplicate.cpp
+--- a/src/duplicate.cpp	2026-09-19 20:25:14
++++ b/src/duplicate.cpp	2026-09-19 20:25:35
+@@ -8,9 +8,18 @@
+ Duplicate::Duplicate(Options* opt) {
+     mOptions = opt;
+ 
++#if defined(__EMSCRIPTEN__) && !defined(__wasm64__)
++    // wasm32 (openpathogen fallback engine for browsers without Memory64):
++    // a 1 GB bitmap cannot live in a phone's browser tab, and size_t is
++    // 32-bit, so (1<<29)<<3 would overflow to zero. 2 x 64 MiB instead; only
++    // the reported duplication rate is affected (it is an estimate either way).
++    mBufLenInBytes = 1L << 26;
++    mBufNum = 2;
++#else
+     // 1G mem required
+     mBufLenInBytes = 1L <<29;
+     mBufNum = 2;
++#endif
+ 
+     // if deduplication is enabled, we double the buffer size and buffer number to make more accurate deduplication
+     // this will take 4x memory (4G)
+@@ -21,7 +30,7 @@
+ 
+     mOffsetMask = PRIME_ARRAY_LEN * mBufNum - 1;
+ 
+-    mBufLenInBits = mBufLenInBytes << 3;
++    mBufLenInBits = (uint64)mBufLenInBytes << 3;
+     mDupBuf = new uint8[mBufLenInBytes * mBufNum];
+     memset(mDupBuf, 0, sizeof(uint8) * mBufLenInBytes * mBufNum);
+ 
+diff -ru fastp64/src/evaluator.cpp fastp32/src/evaluator.cpp
+--- a/src/evaluator.cpp	2026-09-19 20:25:14
++++ b/src/evaluator.cpp	2026-09-19 20:25:24
+@@ -41,7 +41,7 @@
+ int Evaluator::computeSeqLen(string filename) {
+     FastqReader reader(filename);
+ 
+-    long records = 0;
++    long long records = 0;
+     bool reachedEOF = false;
+ 
+     // get seqlen
+@@ -62,14 +62,14 @@
+     return seqlen;
+ }
+ 
+-void Evaluator::computeOverRepSeq(string filename, map<string, long>& hotseqs, int seqlen) {
++void Evaluator::computeOverRepSeq(string filename, map<string, long long>& hotseqs, int seqlen) {
+     FastqReader reader(filename);
+ 
+-    map<string, long> seqCounts;
++    map<string, long long> seqCounts;
+ 
+-    const long BASE_LIMIT = 151 * 10000;
+-    long records = 0;
+-    long bases = 0;
++    const long long BASE_LIMIT = 151 * 10000;
++    long long records = 0;
++    long long bases = 0;
+     bool reachedEOF = false;
+ 
+     while(bases < BASE_LIMIT) {
+@@ -99,10 +99,10 @@
+         delete r;
+     }
+     
+-    map<string, long>::iterator iter;
++    map<string, long long>::iterator iter;
+     for(iter = seqCounts.begin(); iter!=seqCounts.end(); iter++) {
+         string seq = iter->first;
+-        long count = iter->second;
++        long long count = iter->second;
+ 
+         if(seq.length() >= seqlen-1) {
+             if(count >= 3) {
+@@ -128,15 +128,15 @@
+     }
+ 
+     // remove substrings
+-    map<string, long>::iterator iter2;
++    map<string, long long>::iterator iter2;
+     iter = hotseqs.begin(); 
+     while(iter!=hotseqs.end()) {
+         string seq = iter->first;
+-        long count = iter->second;
++        long long count = iter->second;
+         bool isSubString = false;
+         for(iter2 = hotseqs.begin(); iter2!=hotseqs.end(); iter2++) {
+             string seq2 = iter2->first;
+-            long count2 = iter2->second;
++            long long count2 = iter2->second;
+             if(seq != seq2 && seq2.find(seq) != string::npos && count / count2 < 10) {
+                 isSubString = true;
+                 break;
+@@ -162,13 +162,13 @@
+         computeOverRepSeq(mOptions->in2, mOptions->overRepSeqs2, mOptions->seqLen2);
+ }
+ 
+-void Evaluator::evaluateReadNum(long& readNum) {
++void Evaluator::evaluateReadNum(long long& readNum) {
+     FastqReader reader(mOptions->in1);
+ 
+-    const long READ_LIMIT = 512*1024;
+-    const long BASE_LIMIT = 151 * 512*1024;
+-    long records = 0;
+-    long bases = 0;
++    const long long READ_LIMIT = 512*1024;
++    const long long BASE_LIMIT = 151 * 512*1024;
++    long long records = 0;
++    long long bases = 0;
+     size_t firstReadPos = 0;
+ 
+     size_t bytesRead;
+@@ -200,18 +200,18 @@
+         reader.getBytes(bytesRead, bytesTotal);
+         double bytesPerRead = (double)(bytesRead - firstReadPos) / (double) records;
+         // increase it by 1% since the evaluation is usually a bit lower due to bad quality causes lower compression rate
+-        readNum = (long) (bytesTotal*1.01 / bytesPerRead);
++        readNum = (long long) (bytesTotal*1.01 / bytesPerRead);
+     }
+ }
+ 
+ // Depreciated
+-string Evaluator::evalAdapterAndReadNumDepreciated(long& readNum) {
++string Evaluator::evalAdapterAndReadNumDepreciated(long long& readNum) {
+     FastqReader reader(mOptions->in1);
+     // stat up to 1M reads
+-    const long READ_LIMIT = 1024*1024;
+-    const long BASE_LIMIT = 151 * READ_LIMIT;
+-    long records = 0;
+-    long bases = 0;
++    const long long READ_LIMIT = 1024*1024;
++    const long long BASE_LIMIT = 151 * READ_LIMIT;
++    long long records = 0;
++    long long bases = 0;
+     size_t firstReadPos = 0;
+ 
+     size_t bytesRead;
+@@ -286,7 +286,7 @@
+         reader.getBytes(bytesRead, bytesTotal);
+         double bytesPerRead = (double)(bytesRead - firstReadPos) / (double) records;
+         // increase it by 1% since the evaluation is usually a bit lower due to bad quality causes lower compression rate
+-        readNum = (long) (bytesTotal*1.01 / bytesPerRead);
++        readNum = (long long) (bytesTotal*1.01 / bytesPerRead);
+     }
+ 
+     // we need at least 10000 valid records to evaluate
+@@ -407,16 +407,16 @@
+ 
+ }
+ 
+-string Evaluator::evalAdapterAndReadNum(long& readNum, bool isR2) {
++string Evaluator::evalAdapterAndReadNum(long long& readNum, bool isR2) {
+     string filename = mOptions->in1;
+     if(isR2)
+         filename = mOptions->in2;
+     FastqReader reader(filename);
+     // stat up to 256K reads
+-    const long READ_LIMIT = 256*1024;
+-    const long BASE_LIMIT = 151 * READ_LIMIT;
+-    long records = 0;
+-    long bases = 0;
++    const long long READ_LIMIT = 256*1024;
++    const long long BASE_LIMIT = 151 * READ_LIMIT;
++    long long records = 0;
++    long long bases = 0;
+     size_t firstReadPos = 0;
+ 
+     size_t bytesRead;
+@@ -452,7 +452,7 @@
+         reader.getBytes(bytesRead, bytesTotal);
+         double bytesPerRead = (double)(bytesRead - firstReadPos) / (double) records;
+         // increase it by 1% since the evaluation is usually a bit lower due to bad quality causes lower compression rate
+-        readNum = (long) (bytesTotal*1.01 / bytesPerRead);
++        readNum = (long long) (bytesTotal*1.01 / bytesPerRead);
+     }
+ 
+     // we need at least 10000 valid records to evaluate
+@@ -491,7 +491,7 @@
+     // get the top N
+     const int topnum = 10;
+     int topkeys[topnum] = {0};
+-    long total = 0;
++    long long total = 0;
+     for(int k=0; k<size; k++) {
+         int atcg[4] = {0};
+         for(int i=0; i<keylen; i++) {
+@@ -540,7 +540,7 @@
+         string seq = int2seq(key, keylen);
+         if(key == 0)
+             continue;
+-        long count = counts[key];
++        long long count = counts[key];
+         if(count < 10
+ #ifdef __EMSCRIPTEN__
+             /* Patch 3 (openpathogen): on wasm32, `long` is 32-bit, so the original
+@@ -586,7 +586,7 @@
+ 
+ }
+ 
+-string Evaluator::getAdapterWithSeed(int seed, Read** loadedReads, long records, int keylen) {
++string Evaluator::getAdapterWithSeed(int seed, Read** loadedReads, long long records, int keylen) {
+     // we have to shift last cycle for evaluation since it is so noisy, especially for Illumina data
+     const int shiftTail = max(1, mOptions->trim.tail1);
+     NucleotideTree forwardTree(mOptions);
+diff -ru fastp64/src/evaluator.h fastp32/src/evaluator.h
+--- a/src/evaluator.h	2026-09-19 20:25:14
++++ b/src/evaluator.h	2026-09-19 20:25:24
+@@ -15,13 +15,13 @@
+     Evaluator(Options* opt);
+     ~Evaluator();
+     // evaluate how many reads are stored in the input file
+-    void evaluateReadNum(long& readNum);
+-    string evalAdapterAndReadNumDepreciated(long& readNum);
+-    string evalAdapterAndReadNum(long& readNum, bool isR2);
++    void evaluateReadNum(long long& readNum);
++    string evalAdapterAndReadNumDepreciated(long long& readNum);
++    string evalAdapterAndReadNum(long long& readNum, bool isR2);
+     bool isTwoColorSystem();
+     void evaluateSeqLen();
+     void evaluateOverRepSeqs();
+-    void computeOverRepSeq(string filename, map<string, long>& hotseqs, int seqLen);
++    void computeOverRepSeq(string filename, map<string, long long>& hotseqs, int seqLen);
+     int computeSeqLen(string filename);
+ 
+     static bool test();
+@@ -30,7 +30,7 @@
+     Options* mOptions;
+     string int2seq(unsigned int val, int seqlen);
+     int seq2int(string& seq, int pos, int seqlen, int lastVal = -1);
+-    string getAdapterWithSeed(int seed, Read** loadedReads, long records, int keylen);
++    string getAdapterWithSeed(int seed, Read** loadedReads, long long records, int keylen);
+ };
+ 
+ 
+diff -ru fastp64/src/filterresult.cpp fastp32/src/filterresult.cpp
+--- a/src/filterresult.cpp	2026-09-19 20:25:14
++++ b/src/filterresult.cpp	2026-09-19 20:25:24
+@@ -13,8 +13,8 @@
+     for(int i=0; i<FILTER_RESULT_TYPES; i++) {
+         mFilterReadStats[i] = 0;
+     }
+-    mCorrectionMatrix = new long[64];
+-    memset(mCorrectionMatrix, 0, sizeof(long)*64);
++    mCorrectionMatrix = new long long[64];
++    memset(mCorrectionMatrix, 0, sizeof(long long)*64);
+     mCorrectedReads = 0;
+ }
+ 
+@@ -37,10 +37,10 @@
+         return NULL;
+     FilterResult* result = new FilterResult(list[0]->mOptions, list[0]->mPaired);
+ 
+-    long* target = result->getFilterReadStats();
++    long long* target = result->getFilterReadStats();
+     // read stats
+     for(int i=0; i<list.size(); i++) {
+-        long* current = list[i]->getFilterReadStats();
++        long long* current = list[i]->getFilterReadStats();
+         for(int j=0; j<FILTER_RESULT_TYPES; j++) {
+             target[j] += current[j];
+         }
+@@ -54,7 +54,7 @@
+         }
+ 
+         // merge adapter stats
+-        map<string, long>::iterator iter;
++        map<string, long long>::iterator iter;
+         for(iter = list[i]->mAdapter1.begin(); iter != list[i]->mAdapter1.end(); iter++) {
+             if(result->mAdapter1.count(iter->first) > 0)
+                 result->mAdapter1[iter->first] += iter->second;
+@@ -70,9 +70,9 @@
+     }
+ 
+     // correction matrix
+-    long* correction = result->getCorrectionMatrix();
++    long long* correction = result->getCorrectionMatrix();
+     for(int i=0; i<list.size(); i++) {
+-        long* current = list[i]->getCorrectionMatrix();
++        long long* current = list[i]->getCorrectionMatrix();
+         for(int p=0; p<64; p++) {
+             correction[p] += current[p];
+         }
+@@ -85,8 +85,8 @@
+     return result;
+ }
+ 
+-long FilterResult::getTotalCorrectedBases() {
+-    long total = 0;
++long long FilterResult::getTotalCorrectedBases() {
++    long long total = 0;
+     for(int p=0; p<64; p++) {
+         total += mCorrectionMatrix[p];
+     }
+@@ -103,7 +103,7 @@
+     mCorrectedReads += count;
+ }
+ 
+-long FilterResult::getCorrectionNum(char from, char to) {
++long long FilterResult::getCorrectionNum(char from, char to) {
+     int f = from & 0x07;
+     int t = to & 0x07;
+     return mCorrectionMatrix[f*8 + t];
+@@ -151,15 +151,15 @@
+     mTrimmedPolyXBases[base] += length;
+ }
+ 
+-long FilterResult::getTotalPolyXTrimmedReads() {
+-  long sum_reads = 0;
++long long FilterResult::getTotalPolyXTrimmedReads() {
++  long long sum_reads = 0;
+   for(int b = 0; b < 4; b++)
+     sum_reads += mTrimmedPolyXReads[b];
+   return sum_reads;
+ }
+ 
+-long FilterResult::getTotalPolyXTrimmedBases() {
+-  long sum_bases = 0;
++long long FilterResult::getTotalPolyXTrimmedBases() {
++  long long sum_bases = 0;
+   for(int b = 0; b < 4; b++)
+     sum_bases += mTrimmedPolyXBases[b];
+   return sum_bases;
+@@ -210,10 +210,10 @@
+     ofs << padding << "}," << endl;
+ }
+ 
+-void FilterResult::outputAdaptersJson(ofstream& ofs, map<string, long, classcomp>& adapterCounts) {
+-    map<string, long>::iterator iter;
++void FilterResult::outputAdaptersJson(ofstream& ofs, map<string, long long, classcomp>& adapterCounts) {
++    map<string, long long>::iterator iter;
+ 
+-    long total = 0;
++    long long total = 0;
+     for(iter = adapterCounts.begin(); iter!=adapterCounts.end(); iter++) {
+         total += iter->second;
+     }
+@@ -224,7 +224,7 @@
+     const double reportThreshold = 0.01;
+     const double dTotal = (double)total;
+     bool firstItem = true;
+-    long reported = 0;
++    long long reported = 0;
+     for(iter = adapterCounts.begin(); iter!=adapterCounts.end(); iter++) {
+         if(iter->second /dTotal < reportThreshold )
+             continue;
+@@ -238,7 +238,7 @@
+         reported += iter->second;
+     }
+ 
+-    long unreported = total - reported;
++    long long unreported = total - reported;
+ 
+     if(unreported > 0) {
+         if(!firstItem)
+@@ -273,7 +273,7 @@
+     ofs << padding << "}," << endl;
+ }
+ 
+-void writeBaseCountsJson(ofstream& ofs, string pad, string key, long total, long (&counts)[4]) {
++void writeBaseCountsJson(ofstream& ofs, string pad, string key, long long total, long long (&counts)[4]) {
+   ofs << pad << "\t\"total_" << key << "\": " << total << "," << endl;
+   ofs << pad << "\t\"" << key << "\":{";
+   for (int b=0; b<4; b++) {
+@@ -313,7 +313,7 @@
+     ofs << "</script>" << endl;
+ } */
+ 
+-void FilterResult::reportHtml(ofstream& ofs, long totalReads, long totalBases) {
++void FilterResult::reportHtml(ofstream& ofs, long long totalReads, long long totalBases) {
+     double total = (double)totalReads;
+     ofs << "<table class='summary_table'>\n";
+     HtmlReporter::outputRow(ofs, "reads passed filters:", HtmlReporter::formatNumber(mFilterReadStats[PASS_FILTER]) + " (" + to_string(mFilterReadStats[PASS_FILTER] * 100.0 / total) + "%)");
+@@ -333,7 +333,7 @@
+     ofs << "</table>\n";
+ }
+ 
+-void FilterResult::reportAdapterHtml(ofstream& ofs, long totalBases) {
++void FilterResult::reportAdapterHtml(ofstream& ofs, long long totalBases) {
+     ofs << "<div class='subsection_title' onclick=showOrHide('read1_adapters')>Adapter or bad ligation of read1</div>\n";
+     ofs << "<div id='read1_adapters'>\n";
+     outputAdaptersHtml(ofs, mAdapter1, totalBases);
+@@ -346,12 +346,12 @@
+     }
+ }
+ 
+-void FilterResult::outputAdaptersHtml(ofstream& ofs, map<string, long, classcomp>& adapterCounts, long totalBases) {
++void FilterResult::outputAdaptersHtml(ofstream& ofs, map<string, long long, classcomp>& adapterCounts, long long totalBases) {
+ 
+-    map<string, long>::iterator iter;
++    map<string, long long>::iterator iter;
+ 
+-    long total = 0;
+-    long totalAdapterBases = 0;
++    long long total = 0;
++    long long totalAdapterBases = 0;
+     for(iter = adapterCounts.begin(); iter!=adapterCounts.end(); iter++) {
+         total += iter->second;
+         totalAdapterBases += iter->first.length() * iter->second;
+@@ -373,7 +373,7 @@
+ 
+     const double reportThreshold = 0.01;
+     const double dTotal = (double)total;
+-    long reported = 0;
++    long long reported = 0;
+     for(iter = adapterCounts.begin(); iter!=adapterCounts.end(); iter++) {
+         if(iter->second /dTotal < reportThreshold )
+             continue;
+@@ -383,7 +383,7 @@
+         reported += iter->second;
+     }
+ 
+-    long unreported = total - reported;
++    long long unreported = total - reported;
+ 
+     if(unreported > 0) {
+         string tag = "other adapter sequences";
+diff -ru fastp64/src/filterresult.h fastp32/src/filterresult.h
+--- a/src/filterresult.h	2026-09-19 20:25:14
++++ b/src/filterresult.h	2026-09-19 20:25:24
+@@ -28,7 +28,7 @@
+ public:
+     FilterResult(Options* opt, bool paired = false);
+     ~FilterResult();
+-    inline long* getFilterReadStats() {return mFilterReadStats;}
++    inline long long* getFilterReadStats() {return mFilterReadStats;}
+     void addFilterResult(int result, int readNum=1);
+     static FilterResult* merge(vector<FilterResult*>& list);
+     void print();
+@@ -37,8 +37,8 @@
+     // for paired end
+     void addAdapterTrimmed(string adapter1, string adapter2);
+     void addPolyXTrimmed(int base, int length);
+-    long getTotalPolyXTrimmedReads();
+-    long getTotalPolyXTrimmedBases();
++    long long getTotalPolyXTrimmedReads();
++    long long getTotalPolyXTrimmedBases();
+     // a part of JSON report
+     void reportJson(ofstream& ofs, string padding);
+     // a part of JSON report for adapters
+@@ -46,16 +46,16 @@
+     // a part of JSON report for polyX trim
+     void reportPolyXTrimJson(ofstream& ofs, string padding);
+     // a part of HTML report
+-    void reportHtml(ofstream& ofs, long totalReads, long totalBases);
++    void reportHtml(ofstream& ofs, long long totalReads, long long totalBases);
+     // a part of HTML report for adapters
+-    void reportAdapterHtml(ofstream& ofs, long totalBases);
+-    void outputAdaptersJson(ofstream& ofs, map<string, long, classcomp>& adapterCounts);
+-    void outputAdaptersHtml(ofstream& ofs, map<string, long, classcomp>& adapterCounts, long totalBases);
++    void reportAdapterHtml(ofstream& ofs, long long totalBases);
++    void outputAdaptersJson(ofstream& ofs, map<string, long long, classcomp>& adapterCounts);
++    void outputAdaptersHtml(ofstream& ofs, map<string, long long, classcomp>& adapterCounts, long long totalBases);
+     // deal with base correction results
+-    long* getCorrectionMatrix() {return mCorrectionMatrix;}
+-    long getTotalCorrectedBases();
++    long long* getCorrectionMatrix() {return mCorrectionMatrix;}
++    long long getTotalCorrectedBases();
+     void addCorrection(char from, char to);
+-    long getCorrectionNum(char from, char to);
++    long long getCorrectionNum(char from, char to);
+     void incCorrectedReads(int count);
+     void addMergedPairs(int pairs);
+ 
+@@ -63,17 +63,17 @@
+ public:
+     Options* mOptions;
+     bool mPaired;
+-    long mCorrectedReads;
+-    long mMergedPairs;
++    long long mCorrectedReads;
++    long long mMergedPairs;
+ private:
+-    long mFilterReadStats[FILTER_RESULT_TYPES];
+-    long mTrimmedAdapterRead;
+-    long mTrimmedAdapterBases;
+-    long mTrimmedPolyXReads[4] = {0};
+-    long mTrimmedPolyXBases[4] = {0};
+-    map<string, long, classcomp> mAdapter1;
+-    map<string, long, classcomp> mAdapter2;
+-    long* mCorrectionMatrix;
++    long long mFilterReadStats[FILTER_RESULT_TYPES];
++    long long mTrimmedAdapterRead;
++    long long mTrimmedAdapterBases;
++    long long mTrimmedPolyXReads[4] = {0};
++    long long mTrimmedPolyXBases[4] = {0};
++    map<string, long long, classcomp> mAdapter1;
++    map<string, long long, classcomp> mAdapter2;
++    long long* mCorrectionMatrix;
+ };
+ 
+ #endif
+\ No newline at end of file
+diff -ru fastp64/src/htmlreporter.cpp fastp32/src/htmlreporter.cpp
+--- a/src/htmlreporter.cpp	2026-09-19 20:25:14
++++ b/src/htmlreporter.cpp	2026-09-19 20:25:24
+@@ -22,7 +22,7 @@
+     mInsertSizePeak = insertSizePeak;
+ }
+ 
+-void HtmlReporter::outputRow(ofstream& ofs, string key, long v) {
++void HtmlReporter::outputRow(ofstream& ofs, string key, long long v) {
+     ofs << "<tr><td class='col1'>" + key + "</td><td class='col2'>" + to_string(v) + "</td></tr>\n";
+ }
+ 
+@@ -30,7 +30,7 @@
+     ofs << "<tr><td class='col1'>" + key + "</td><td class='col2'>" + v + "</td></tr>\n";
+ }
+ 
+-string HtmlReporter::formatNumber(long number) {
++string HtmlReporter::formatNumber(long long number) {
+     double num = (double)number;
+     string unit[6] = {"", "K", "M", "G", "T", "P"};
+     int order = 0;
+@@ -45,7 +45,7 @@
+         return to_string(num) + " " + unit[order];
+ }
+ 
+-string HtmlReporter::getPercents(long numerator, long denominator) {
++string HtmlReporter::getPercents(long long numerator, long long denominator) {
+     if(denominator == 0)
+         return "0.0";
+     else
+@@ -53,43 +53,43 @@
+ }
+ 
+ void HtmlReporter::printSummary(ofstream& ofs, FilterResult* result, Stats* preStats1, Stats* postStats1, Stats* preStats2, Stats* postStats2) {
+-    long pre_total_reads = preStats1->getReads();
++    long long pre_total_reads = preStats1->getReads();
+     if(preStats2)
+         pre_total_reads += preStats2->getReads();
+ 
+-    long pre_total_bases = preStats1->getBases();
++    long long pre_total_bases = preStats1->getBases();
+     if(preStats2)
+         pre_total_bases += preStats2->getBases();
+ 
+-    long pre_q20_bases = preStats1->getQ20();
++    long long pre_q20_bases = preStats1->getQ20();
+     if(preStats2)
+         pre_q20_bases += preStats2->getQ20();
+ 
+-    long pre_q30_bases = preStats1->getQ30();
++    long long pre_q30_bases = preStats1->getQ30();
+     if(preStats2)
+         pre_q30_bases += preStats2->getQ30();
+ 
+-    long pre_total_gc = preStats1->getGCNumber();
++    long long pre_total_gc = preStats1->getGCNumber();
+     if(preStats2)
+         pre_total_gc += preStats2->getGCNumber();
+ 
+-    long post_total_reads = postStats1->getReads();
++    long long post_total_reads = postStats1->getReads();
+     if(postStats2)
+         post_total_reads += postStats2->getReads();
+ 
+-    long post_total_bases = postStats1->getBases();
++    long long post_total_bases = postStats1->getBases();
+     if(postStats2)
+         post_total_bases += postStats2->getBases();
+ 
+-    long post_q20_bases = postStats1->getQ20();
++    long long post_q20_bases = postStats1->getQ20();
+     if(postStats2)
+         post_q20_bases += postStats2->getQ20();
+ 
+-    long post_q30_bases = postStats1->getQ30();
++    long long post_q30_bases = postStats1->getQ30();
+     if(postStats2)
+         post_q30_bases += postStats2->getQ30();
+ 
+-    long post_total_gc = postStats1->getGCNumber();
++    long long post_total_gc = postStats1->getGCNumber();
+     if(postStats2)
+         post_total_gc += postStats2->getGCNumber();
+ 
+@@ -210,7 +210,7 @@
+     if(isizeLimit<1)
+         isizeLimit = 1;
+     int total = min(mOptions->insertSizeMax, isizeLimit);
+-    long *x = new long[total];
++    long long *x = new long long[total];
+     double allCount = 0;
+     for(int i=0; i<total; i++) {
+         x[i] = i;
+@@ -271,7 +271,7 @@
+     string json_str = "var data=[";
+ 
+     int total = mOptions->duplicate.histSize - 2;
+-    long *x = new long[total];
++    long long *x = new long long[total];
+     double allCount = 0;
+     for(int i=0; i<total; i++) {
+         x[i] = i+1;
+diff -ru fastp64/src/htmlreporter.h fastp32/src/htmlreporter.h
+--- a/src/htmlreporter.h	2026-09-19 20:25:14
++++ b/src/htmlreporter.h	2026-09-19 20:25:24
+@@ -23,10 +23,10 @@
+     void setInsertHist(atomic_long* insertHist, int insertSizePeak);
+     void report(FilterResult* result, Stats* preStats1, Stats* postStats1, Stats* preStats2 = NULL, Stats* postStats2 = NULL);
+ 
+-    static void outputRow(ofstream& ofs, string key, long value);
++    static void outputRow(ofstream& ofs, string key, long long value);
+     static void outputRow(ofstream& ofs, string key, string value);
+-    static string formatNumber(long number);
+-    static string getPercents(long numerator, long denominator);
++    static string formatNumber(long long number);
++    static string getPercents(long long numerator, long long denominator);
+ private:
+     const string getCurrentSystemTime();
+     void printHeader(ofstream& ofs);
+diff -ru fastp64/src/jsonreporter.cpp fastp32/src/jsonreporter.cpp
+--- a/src/jsonreporter.cpp	2026-09-19 20:25:14
++++ b/src/jsonreporter.cpp	2026-09-19 20:25:24
+@@ -32,43 +32,43 @@
+         sequencingInfo += " (" + to_string(preStats1->getCycles()) + " cycles)";
+     }
+ 
+-    long pre_total_reads = preStats1->getReads();
++    long long pre_total_reads = preStats1->getReads();
+     if(preStats2)
+         pre_total_reads += preStats2->getReads();
+ 
+-    long pre_total_bases = preStats1->getBases();
++    long long pre_total_bases = preStats1->getBases();
+     if(preStats2)
+         pre_total_bases += preStats2->getBases();
+ 
+-    long pre_q20_bases = preStats1->getQ20();
++    long long pre_q20_bases = preStats1->getQ20();
+     if(preStats2)
+         pre_q20_bases += preStats2->getQ20();
+ 
+-    long pre_q30_bases = preStats1->getQ30();
++    long long pre_q30_bases = preStats1->getQ30();
+     if(preStats2)
+         pre_q30_bases += preStats2->getQ30();
+ 
+-    long pre_total_gc = preStats1->getGCNumber();
++    long long pre_total_gc = preStats1->getGCNumber();
+     if(preStats2)
+         pre_total_gc += preStats2->getGCNumber();
+ 
+-    long post_total_reads = postStats1->getReads();
++    long long post_total_reads = postStats1->getReads();
+     if(postStats2)
+         post_total_reads += postStats2->getReads();
+ 
+-    long post_total_bases = postStats1->getBases();
++    long long post_total_bases = postStats1->getBases();
+     if(postStats2)
+         post_total_bases += postStats2->getBases();
+ 
+-    long post_q20_bases = postStats1->getQ20();
++    long long post_q20_bases = postStats1->getQ20();
+     if(postStats2)
+         post_q20_bases += postStats2->getQ20();
+ 
+-    long post_q30_bases = postStats1->getQ30();
++    long long post_q30_bases = postStats1->getQ30();
+     if(postStats2)
+         post_q30_bases += postStats2->getQ30();
+ 
+-    long post_total_gc = postStats1->getGCNumber();
++    long long post_total_gc = postStats1->getGCNumber();
+     if(postStats2)
+         post_total_gc += postStats2->getGCNumber();
+ 
+diff -ru fastp64/src/main.cpp fastp32/src/main.cpp
+--- a/src/main.cpp	2026-09-19 20:25:14
++++ b/src/main.cpp	2026-09-19 20:25:24
+@@ -140,7 +140,7 @@
+ 
+     // split the output
+     cmd.add<int>("split", 's', "split output by limiting total split file number with this option (2~999), a sequential number prefix will be added to output name ( 0001.out.fq, 0002.out.fq...), disabled by default", false, 0);
+-    cmd.add<long>("split_by_lines", 'S', "split output by limiting lines of each file with this option(>=1000), a sequential number prefix will be added to output name ( 0001.out.fq, 0002.out.fq...), disabled by default", false, 0);
++    cmd.add<long long>("split_by_lines", 'S', "split output by limiting lines of each file with this option(>=1000), a sequential number prefix will be added to output name ( 0001.out.fq, 0002.out.fq...), disabled by default", false, 0);
+     cmd.add<int>("split_prefix_digits", 'd', "the digits for the sequential number padding (1~10), default is 4, so the filename will be padded as 0001.xxx, 0 to disable padding", false, 4);
+ 
+     // deprecated options
+@@ -343,7 +343,7 @@
+         opt.split.byFileNumber = true;
+     }
+     if(cmd.exist("split_by_lines")) {
+-        long lines = cmd.get<long>("split_by_lines");
++        long long lines = cmd.get<long long>("split_by_lines");
+         if(lines % 4 != 0) {
+             error_exit("Line number (--split_by_lines) should be a multiple of 4");
+         }
+@@ -418,7 +418,7 @@
+             eva.evaluateOverRepSeqs();
+     }
+ 
+-    long readNum = 0;
++    long long readNum = 0;
+ 
+     // using evaluator to guess how many reads in total
+     if(opt.shallDetectAdapter(false)) {
+diff -ru fastp64/src/options.h fastp32/src/options.h
+--- a/src/options.h	2026-09-19 20:25:14
++++ b/src/options.h	2026-09-19 20:25:24
+@@ -183,7 +183,7 @@
+     // number of files
+     int number;
+     // lines of each file
+-    long size;
++    long long size;
+     // digits number of file name prefix, for example 0001 means 4 digits
+     int digits;
+     // need evaluation?
+@@ -355,8 +355,8 @@
+     PolyXTrimmerOptions polyXTrim;
+     // for overrepresentation analysis
+     OverrepresentedSequenceAnasysOptions overRepAnalysis;
+-    map<string, long> overRepSeqs1;
+-    map<string, long> overRepSeqs2;
++    map<string, long long> overRepSeqs1;
++    map<string, long long> overRepSeqs2;
+     int seqLen1;
+     int seqLen2;
+     // low complexity filtering
+diff -ru fastp64/src/peprocessor.cpp fastp32/src/peprocessor.cpp
+--- a/src/peprocessor.cpp	2026-09-19 20:25:14
++++ b/src/peprocessor.cpp	2026-09-19 20:25:24
+@@ -297,7 +297,7 @@
+ 
+ int PairEndProcessor::getPeakInsertSize() {
+     int peak = 0;
+-    long maxCount = -1;
++    long long maxCount = -1;
+     for(int i=0; i<mOptions->insertSizeMax; i++) {
+         if(mInsertSizeHist[i] > maxCount) {
+             peak = i;
+@@ -698,9 +698,9 @@
+ {
+     if(mOptions->verbose)
+         loginfo("start to load data");
+-    long lastReported = 0;
++    long long lastReported = 0;
+     int slept = 0;
+-    long readNum = 0;
++    long long readNum = 0;
+     bool splitSizeReEvaluated = false;
+     ReadPair** data = new ReadPair*[PACK_SIZE];
+     memset(data, 0, sizeof(ReadPair*)*PACK_SIZE);
+diff -ru fastp64/src/seprocessor.cpp fastp32/src/seprocessor.cpp
+--- a/src/seprocessor.cpp	2026-09-19 20:25:14
++++ b/src/seprocessor.cpp	2026-09-19 20:25:24
+@@ -368,9 +368,9 @@
+ {
+     if(mOptions->verbose)
+         loginfo("start to load data");
+-    long lastReported = 0;
++    long long lastReported = 0;
+     int slept = 0;
+-    long readNum = 0;
++    long long readNum = 0;
+     bool splitSizeReEvaluated = false;
+     Read** data = new Read*[PACK_SIZE];
+     memset(data, 0, sizeof(Read*)*PACK_SIZE);
+diff -ru fastp64/src/stats.cpp fastp32/src/stats.cpp
+--- a/src/stats.cpp	2026-09-19 20:25:14
++++ b/src/stats.cpp	2026-09-19 20:25:24
+@@ -35,27 +35,27 @@
+         mQ30Bases[i] = 0;
+         mBaseContents[i] = 0;
+ 
+-        mCycleQ30Bases[i] = new long[mBufLen];
+-        memset(mCycleQ30Bases[i], 0, sizeof(long) * mBufLen);
++        mCycleQ30Bases[i] = new long long[mBufLen];
++        memset(mCycleQ30Bases[i], 0, sizeof(long long) * mBufLen);
+ 
+-        mCycleQ20Bases[i] = new long[mBufLen];
+-        memset(mCycleQ20Bases[i], 0, sizeof(long) * mBufLen);
++        mCycleQ20Bases[i] = new long long[mBufLen];
++        memset(mCycleQ20Bases[i], 0, sizeof(long long) * mBufLen);
+ 
+-        mCycleBaseContents[i] = new long[mBufLen];
+-        memset(mCycleBaseContents[i], 0, sizeof(long) * mBufLen);
++        mCycleBaseContents[i] = new long long[mBufLen];
++        memset(mCycleBaseContents[i], 0, sizeof(long long) * mBufLen);
+ 
+-        mCycleBaseQual[i] = new long[mBufLen];
+-        memset(mCycleBaseQual[i], 0, sizeof(long) * mBufLen);
++        mCycleBaseQual[i] = new long long[mBufLen];
++        memset(mCycleBaseQual[i], 0, sizeof(long long) * mBufLen);
+     }
+-    mCycleTotalBase = new long[mBufLen];
+-    memset(mCycleTotalBase, 0, sizeof(long)*mBufLen);
++    mCycleTotalBase = new long long[mBufLen];
++    memset(mCycleTotalBase, 0, sizeof(long long)*mBufLen);
+ 
+-    mCycleTotalQual = new long[mBufLen];
+-    memset(mCycleTotalQual, 0, sizeof(long)*mBufLen);
++    mCycleTotalQual = new long long[mBufLen];
++    memset(mCycleTotalQual, 0, sizeof(long long)*mBufLen);
+ 
+     mKmerBufLen = 2<<(KMER_LEN * 2);
+-    mKmer = new long[mKmerBufLen];
+-    memset(mKmer, 0, sizeof(long)*mKmerBufLen);
++    mKmer = new long long[mKmerBufLen];
++    memset(mKmer, 0, sizeof(long long)*mKmerBufLen);
+ 
+     initOverRepSeq();
+ }
+@@ -64,42 +64,42 @@
+     if(newBufLen <= mBufLen)
+         return ;
+ 
+-    long* newBuf = NULL;
++    long long* newBuf = NULL;
+ 
+     for(int i=0; i<8; i++){
+-        newBuf = new long[newBufLen];
+-        memset(newBuf, 0, sizeof(long)*newBufLen);
+-        memcpy(newBuf, mCycleQ30Bases[i], sizeof(long) * mBufLen);
++        newBuf = new long long[newBufLen];
++        memset(newBuf, 0, sizeof(long long)*newBufLen);
++        memcpy(newBuf, mCycleQ30Bases[i], sizeof(long long) * mBufLen);
+         delete mCycleQ30Bases[i];
+         mCycleQ30Bases[i] = newBuf;
+ 
+-        newBuf = new long[newBufLen];
+-        memset(newBuf, 0, sizeof(long)*newBufLen);
+-        memcpy(newBuf, mCycleQ20Bases[i], sizeof(long) * mBufLen);
++        newBuf = new long long[newBufLen];
++        memset(newBuf, 0, sizeof(long long)*newBufLen);
++        memcpy(newBuf, mCycleQ20Bases[i], sizeof(long long) * mBufLen);
+         delete mCycleQ20Bases[i];
+         mCycleQ20Bases[i] = newBuf;
+ 
+-        newBuf = new long[newBufLen];
+-        memset(newBuf, 0, sizeof(long)*newBufLen);
+-        memcpy(newBuf, mCycleBaseContents[i], sizeof(long) * mBufLen);
++        newBuf = new long long[newBufLen];
++        memset(newBuf, 0, sizeof(long long)*newBufLen);
++        memcpy(newBuf, mCycleBaseContents[i], sizeof(long long) * mBufLen);
+         delete mCycleBaseContents[i];
+         mCycleBaseContents[i] = newBuf;
+ 
+-        newBuf = new long[newBufLen];
+-        memset(newBuf, 0, sizeof(long)*newBufLen);
+-        memcpy(newBuf, mCycleBaseQual[i], sizeof(long) * mBufLen);
++        newBuf = new long long[newBufLen];
++        memset(newBuf, 0, sizeof(long long)*newBufLen);
++        memcpy(newBuf, mCycleBaseQual[i], sizeof(long long) * mBufLen);
+         delete mCycleBaseQual[i];
+         mCycleBaseQual[i] = newBuf;
+     }
+-    newBuf = new long[newBufLen];
+-    memset(newBuf, 0, sizeof(long)*newBufLen);
+-    memcpy(newBuf, mCycleTotalBase, sizeof(long)*mBufLen);
++    newBuf = new long long[newBufLen];
++    memset(newBuf, 0, sizeof(long long)*newBufLen);
++    memcpy(newBuf, mCycleTotalBase, sizeof(long long)*mBufLen);
+     delete mCycleTotalBase;
+     mCycleTotalBase = newBuf;
+ 
+-    newBuf = new long[newBufLen];
+-    memset(newBuf, 0, sizeof(long)*newBufLen);
+-    memcpy(newBuf, mCycleTotalQual, sizeof(long)*mBufLen);
++    newBuf = new long long[newBufLen];
++    memset(newBuf, 0, sizeof(long long)*newBufLen);
++    memcpy(newBuf, mCycleTotalQual, sizeof(long long)*mBufLen);
+     delete mCycleTotalQual;
+     mCycleTotalQual = newBuf;
+ 
+@@ -343,31 +343,31 @@
+     return mCycles;
+ }
+ 
+-long Stats::getReads() {
++long long Stats::getReads() {
+     if(!summarized)
+         summarize();
+     return mReads;
+ }
+ 
+-long Stats::getBases() {
++long long Stats::getBases() {
+     if(!summarized)
+         summarize();
+     return mBases;
+ }
+ 
+-long Stats::getQ20() {
++long long Stats::getQ20() {
+     if(!summarized)
+         summarize();
+     return mQ20Total;
+ }
+ 
+-long Stats::getQ30() {
++long long Stats::getQ30() {
+     if(!summarized)
+         summarize();
+     return mQ30Total;
+ }
+ 
+-long Stats::getGCNumber() {
++long long Stats::getGCNumber() {
+     if(!summarized)
+         summarize();
+     return mBaseContents['G' & 0x07] + mBaseContents['C' & 0x07];
+@@ -440,7 +440,7 @@
+         string first = kmer3(i);
+         for(int j=0; j<16; j++) {
+             int target = (i<<4) + j;
+-            long count = mKmer[target];
++            long long count = mKmer[target];
+             string last = kmer2(j);
+             ofs << padding << "\t\t\"" << first << last << "\":" << count;
+             if(j != 16-1)
+@@ -454,12 +454,12 @@
+     ofs << padding << "\t" << "}," << endl;
+ 
+     // over represented seqs
+-    map<string, long>::iterator iter;
++    map<string, long long>::iterator iter;
+     bool first = true;
+     ofs << padding << "\t" << "\"overrepresented_sequences\": {" << endl;
+     for(iter=mOverRepSeq.begin(); iter!=mOverRepSeq.end(); iter++) {
+         string seq = iter->first;
+-        long count = iter->second;
++        long long count = iter->second;
+         if(!overRepPassed(seq, count))
+             continue;
+         if(!first) {
+@@ -483,14 +483,14 @@
+     return ss.str();
+ }
+ 
+-string Stats::list2string(double* list, int size, long* coords) {
++string Stats::list2string(double* list, int size, long long* coords) {
+     stringstream ss;
+     for(int i=0; i<size; i++) {
+         // coords is 1,2,3,...
+-        long start = 0;
++        long long start = 0;
+         if(i>0)
+             start = coords[i-1];
+-        long end = coords[i];
++        long long end = coords[i];
+ 
+         double total = 0.0;
+         for(int k=start; k<end; k++)
+@@ -508,7 +508,7 @@
+     return ss.str();
+ }
+ 
+-string Stats::list2string(long* list, int size) {
++string Stats::list2string(long long* list, int size) {
+     stringstream ss;
+     for(int i=0; i<size; i++) {
+         ss << list[i];
+@@ -527,7 +527,7 @@
+     }
+ }
+ 
+-bool Stats::overRepPassed(string& seq, long count) {
++bool Stats::overRepPassed(string& seq, long long count) {
+     int s = mOptions->overRepAnalysis.sampling;
+     switch(seq.length()) {
+         case 10:
+@@ -546,7 +546,7 @@
+ void Stats::reportHtmlORA(ofstream& ofs, string filteringType, string readName) {
+     // over represented seqs
+     double dBases = mBases;
+-    map<string, long>::iterator iter;
++    map<string, long long>::iterator iter;
+     int displayed = 0;
+ 
+     // KMER
+@@ -563,7 +563,7 @@
+     int found = 0;
+     for(iter=mOverRepSeq.begin(); iter!=mOverRepSeq.end(); iter++) {
+         string seq = iter->first;
+-        long count = iter->second;
++        long long count = iter->second;
+         if(!overRepPassed(seq, count))
+             continue;
+         found++;
+@@ -586,7 +586,7 @@
+     bool first = true;
+     for(iter=mOverRepSeq.begin(); iter!=mOverRepSeq.end(); iter++) {
+         string seq = iter->first;
+-        long count = iter->second;
++        long long count = iter->second;
+         if(!overRepPassed(seq, count))
+             continue;
+ 
+@@ -666,7 +666,7 @@
+ 
+ string Stats::makeKmerTD(int i, int j) {
+     int target = (i<<4) + j;
+-    long val = mKmer[target];
++    long long val = mKmer[target];
+     // 3bp + 2bp = 5bp
+     string first = kmer3(i);
+     string last = kmer2(j);
+@@ -735,7 +735,7 @@
+     ofs << "\n<script type=\"text/javascript\">" << endl;
+     string json_str = "var data=[";
+ 
+-    long *x = new long[mCycles];
++    long long *x = new long long[mCycles];
+     int total = 0;
+     if(!isLongRead()) {
+         for(int i=0; i<mCycles; i++){
+@@ -810,7 +810,7 @@
+     ofs << "\n<script type=\"text/javascript\">" << endl;
+     string json_str = "var data=[";
+ 
+-    long *x = new long[mCycles];
++    long long *x = new long long[mCycles];
+     int total = 0;
+     if(!isLongRead()) {
+         for(int i=0; i<mCycles; i++){
+@@ -843,7 +843,7 @@
+     // four bases
+     for (int b = 0; b<6; b++) {
+         string base = alphabets[b];
+-        long count = 0;
++        long long count = 0;
+         if(base.size()==1) {
+             char b = base[0] & 0x07;
+             count = mBaseContents[b];
+@@ -892,7 +892,7 @@
+     Stats* s = new Stats(list[0]->mOptions, list[0]->mIsRead2, cycles, 0);
+ 
+     // init overrepresented seq maps
+-    map<string, long>::iterator iter;
++    map<string, long long>::iterator iter;
+ 
+     for(int t=0; t<list.size(); t++) {
+         int curCycles =  list[t]->getCycles();
+@@ -939,24 +939,24 @@
+ }
+ 
+ void Stats::initOverRepSeq() {
+-    map<string, long> overRepSeq;
++    map<string, long long> overRepSeq;
+     if(mIsRead2)
+         overRepSeq = mOptions->overRepSeqs2;
+     else
+         overRepSeq = mOptions->overRepSeqs1;
+ 
+-    map<string, long>::iterator iter;
++    map<string, long long>::iterator iter;
+     for(iter = overRepSeq.begin(); iter!=overRepSeq.end(); iter++) {
+         string seq = iter->first;
+         mOverRepSeq[seq] = 0;
+-        long* distBuf = new long[mEvaluatedSeqLen];
+-        memset(distBuf, 0, sizeof(long)*mEvaluatedSeqLen);
++        long long* distBuf = new long long[mEvaluatedSeqLen];
++        memset(distBuf, 0, sizeof(long long)*mEvaluatedSeqLen);
+         mOverRepSeqDist[seq] = distBuf;
+     }
+ }
+ 
+ void Stats::deleteOverRepSeqDist() {
+-    map<string, long>::iterator iter;
++    map<string, long long>::iterator iter;
+     for(iter = mOverRepSeq.begin(); iter!=mOverRepSeq.end(); iter++) {
+         string seq = iter->first;
+         delete mOverRepSeqDist[seq];
+diff -ru fastp64/src/stats.h fastp32/src/stats.h
+--- a/src/stats.h	2026-09-19 20:25:14
++++ b/src/stats.h	2026-09-19 20:25:24
+@@ -17,11 +17,11 @@
+     Stats(Options* opt, bool isRead2 = false, int guessedCycles = 0, int bufferMargin = 1024);
+     ~Stats();
+     int getCycles();
+-    long getReads();
+-    long getBases();
+-    long getQ20();
+-    long getQ30();
+-    long getGCNumber();
++    long long getReads();
++    long long getBases();
++    long long getQ20();
++    long long getQ30();
++    long long getGCNumber();
+     // by default the qualified qual score is Q20 ('5')
+     void statRead(Read* r);
+ 
+@@ -42,8 +42,8 @@
+ 
+ public:
+     static string list2string(double* list, int size);
+-    static string list2string(double* list, int size, long* coords);
+-    static string list2string(long* list, int size);
++    static string list2string(double* list, int size, long long* coords);
++    static string list2string(long long* list, int size);
+     static int base2val(char base);
+ 
+ private:
+@@ -52,12 +52,12 @@
+     string kmer3(int val);
+     string kmer2(int val);
+     void deleteOverRepSeqDist();
+-    bool overRepPassed(string& seq, long count);
++    bool overRepPassed(string& seq, long long count);
+ 
+ private:
+     Options* mOptions;
+     bool mIsRead2;
+-    long mReads;
++    long long mReads;
+     int mEvaluatedSeqLen;
+     /* 
+     why we use 8 here?
+@@ -68,33 +68,33 @@
+     'G' % 8 = 7
+     'N' % 8 = 6
+     */
+-    long *mCycleQ30Bases[8];
+-    long *mCycleQ20Bases[8];
+-    long *mCycleBaseContents[8];
+-    long *mCycleBaseQual[8];
+-    long *mCycleTotalBase;
+-    long *mCycleTotalQual;
+-    long *mKmer;
++    long long *mCycleQ30Bases[8];
++    long long *mCycleQ20Bases[8];
++    long long *mCycleBaseContents[8];
++    long long *mCycleBaseQual[8];
++    long long *mCycleTotalBase;
++    long long *mCycleTotalQual;
++    long long *mKmer;
+ 
+     map<string, double*> mQualityCurves;
+     map<string, double*> mContentCurves;
+-    map<string, long> mOverRepSeq;
+-    map<string, long*> mOverRepSeqDist;
++    map<string, long long> mOverRepSeq;
++    map<string, long long*> mOverRepSeqDist;
+ 
+ 
+     int mCycles;
+     int mBufLen;
+-    long mBases;
+-    long mQ20Bases[8];
+-    long mQ30Bases[8];
+-    long mBaseContents[8];
+-    long mQ20Total;
+-    long mQ30Total;
++    long long mBases;
++    long long mQ20Bases[8];
++    long long mQ30Bases[8];
++    long long mBaseContents[8];
++    long long mQ20Total;
++    long long mQ30Total;
+     bool summarized;
+-    long mKmerMax;
+-    long mKmerMin;
++    long long mKmerMax;
++    long long mKmerMin;
+     int mKmerBufLen;
+-    long mLengthSum;
++    long long mLengthSum;
+ };
+ 
+ #endif
+\ No newline at end of file
+diff -ru fastp64/src/threadconfig.cpp fastp32/src/threadconfig.cpp
+--- a/src/threadconfig.cpp	2026-09-19 20:25:14
++++ b/src/threadconfig.cpp	2026-09-19 20:25:24
+@@ -106,7 +106,7 @@
+     }
+ }
+ 
+-void ThreadConfig::markProcessed(long readNum) {
++void ThreadConfig::markProcessed(long long readNum) {
+     mCurrentSplitReads += readNum;
+     if(!mOptions->split.enabled)
+         return ;
+diff -ru fastp64/src/threadconfig.h fastp32/src/threadconfig.h
+--- a/src/threadconfig.h	2026-09-19 20:25:14
++++ b/src/threadconfig.h	2026-09-19 20:25:24
+@@ -37,7 +37,7 @@
+     int getThreadId() {return mThreadId;}
+     // for splitting output
+     // increase mCurrentSplitReads by readNum, and check it with options->split.size;
+-    void markProcessed(long readNum);
++    void markProcessed(long long readNum);
+     void initWriterForSplit();
+     bool canBeStopped();
+     void cleanup();
+@@ -59,7 +59,7 @@
+     // for spliting output
+     int mThreadId;
+     int mWorkingSplit;
+-    long mCurrentSplitReads;
++    long long mCurrentSplitReads;
+     bool mCanBeStopped;
+ };
+ 
+diff -ru fastp64/src/writerthread.cpp fastp32/src/writerthread.cpp
+--- a/src/writerthread.cpp	2026-09-19 20:25:14
++++ b/src/writerthread.cpp	2026-09-19 20:25:24
+@@ -80,6 +80,6 @@
+     mWriter1 = new Writer(gzfile);
+ }
+ 
+-long WriterThread::bufferLength(){
++long long WriterThread::bufferLength(){
+     return mInputCounter - mOutputCounter;
+ }
+diff -ru fastp64/src/writerthread.h fastp32/src/writerthread.h
+--- a/src/writerthread.h	2026-09-19 20:25:14
++++ b/src/writerthread.h	2026-09-19 20:25:24
+@@ -28,7 +28,7 @@
+     void input(char* data, size_t size);
+     bool setInputCompleted();
+ 
+-    long bufferLength();
++    long long bufferLength();
+     string getFilename() {return mFilename;}
+ 
+ private:

@@ -1,0 +1,13 @@
+--- a/seqmenttree.c	2026-02-22 15:59:38
++++ b/seqmenttree.c	2026-09-19 18:59:04
+@@ -61,8 +61,8 @@
+ 	
+ 	/* add subtree of the branch */
+ 	if(*(branch->branch)) {
+-		branch->branch[0] = rcpSeqmentTree(src, branch->branch[0]);
+-		branch->branch[1] = rcpSeqmentTree(src, branch->branch[1]);
++		dest->branch[0] = rcpSeqmentTree(src, branch->branch[0]);
++		dest->branch[1] = rcpSeqmentTree(src, branch->branch[1]);
+ 	}
+ 	
+ 	return dest;

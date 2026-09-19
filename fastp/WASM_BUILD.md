@@ -89,6 +89,48 @@ Notes:
 - No `-sPROXY_TO_PTHREAD` — the module runs inside its own worker and is
   driven via `ccall`, exactly like the KMA build.
 
+## The wasm32 fallback build (`fastp32.js` / `fastp32.wasm`)
+
+Safari as of 27.0, and so every iOS browser (all are WebKit), has no Memory64, so
+`fastp.wasm` cannot load there. Those browsers get a wasm32 + pthreads build of the
+same tree. On top of `wasm-port.patch`, apply `wasm32.patch`:
+
+1. **`long` → `long long`** in every type (not in strings or comments). fastp keeps
+   read, base and Q20/Q30 totals in `long`, which is 32-bit on wasm32 and would
+   overflow past 2^31 bases (a few hundred MB of gzipped reads). The rewrite is
+   mechanical: `wasm32-widen-long.py` reproduces it from the wasm64 tree. It makes
+   the evaluator fix above redundant for this build.
+2. **Duplication buffer 2 × 64 MiB** instead of 2 × 512 MiB, under
+   `#if defined(__EMSCRIPTEN__) && !defined(__wasm64__)`: a 1 GB bitmap does not fit
+   in a phone's browser tab, and `(1<<29)<<3` overflows a 32-bit `size_t`. Only the
+   reported duplication rate changes, and only on large samples (it is an estimate
+   in either build).
+
+```bash
+git apply /path/to/openpathogen/fastp/wasm-port.patch
+git apply /path/to/openpathogen/fastp/wasm32.patch
+em++ -O2 -std=c++11 -pthread -sUSE_ZLIB=1 \
+     -sINVOKE_RUN=0 -sEXIT_RUNTIME=0 -sFORCE_FILESYSTEM=1 \
+     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=67108864 \
+     -sMAXIMUM_MEMORY=4294967296 \
+     -sSTACK_SIZE=1048576 -sDEFAULT_PTHREAD_STACK_SIZE=1048576 \
+     -sPTHREAD_POOL_SIZE=12 \
+     -sEXPORTED_FUNCTIONS='["_fastp_run","_fastp_state","_fastp_code","_malloc","_free"]' \
+     -sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","FS"]' \
+     -o fastp32.js src/*.cpp
+```
+
+- No `-sMEMORY64`; the ceiling is 4 GB. A shared memory reserves its maximum up
+  front and phones refuse large reservations, so the runner creates the memory
+  itself (`Module.wasmMemory`) with the largest maximum the device accepts: 4 GB,
+  then 2 GB, 1 GB, 512 MB.
+- The pool is a fixed 12, since `--thread` is always 1 (1 wrapper + 1 producer +
+  1 consumer + up to 7 writers = 10).
+
+`js/engine.js` picks the build per browser; `?engine=wasm32` forces it on desktop.
+On the example data, fastp32's `report.json` is byte-identical to fastp's, and the
+filtered reads give the same KMA results.
+
 ## Gotchas encoded in `js/fastp-runner.worker.js`
 
 - `Module.mainScriptUrlOrBlob` must point at `fastp.js` itself, or the

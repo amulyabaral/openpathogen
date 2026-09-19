@@ -1,0 +1,62 @@
+# Makefile for the wasm32 build of KMA (kma32.js + kma32.wasm)
+#
+# The fallback engine for browsers without WebAssembly Memory64 — every iOS
+# browser (all are WebKit) and Safari as of 27.0. Same sources, same pthreads
+# model and ring-buffer pipe as the wasm64 build (Makefile.wasm); only the
+# pointer width, the memory ceiling and the pool size differ:
+#
+#   no -sMEMORY64      -> wasm32 (4 GB address space at most)
+#   MAXIMUM_MEMORY 4GB -> the wasm32 ceiling. The JS runner creates the memory
+#                         itself (Module.wasmMemory) with the largest maximum
+#                         the device accepts (4 GB, 2 GB, 1 GB, ...), because a
+#                         shared memory reserves its maximum up front and
+#                         phones refuse large reservations.
+#   PTHREAD_POOL_SIZE  -> read from Module.kmaPoolSize (set by the runner from
+#                         the thread count it asks for), so phones do not
+#                         pre-start a desktop-sized pool of workers.
+#
+# Objects go to build32/ so this never mixes with the wasm64 objects.
+#
+#   emmake make -f Makefile.wasm32 clean
+#   emmake make -f Makefile.wasm32
+
+CC = emcc
+AR = emar
+OBJDIR = build32
+
+SRCS = align.c alnfrags.c ankers.c assembly.c chain.c cmp.c compdna.c compkmers.c compress.c conclave.c db.c decon.c dist.c ef.c filebuff.c frags.c hashmap.c hashmapcci.c hashmapkma.c hashmapkmers.c hashtable.c index.c kma.c kmapipe.c kmeranker.c kmers.c kmmap.c loadupdate.c makeindex.c matrix.c merge.c middlelayer.c mt1.c nw.c pherror.c printconsensus.c qc.c qseqs.c qualcheck.c runinput.c runkma.c sam.c savekmers.c seq2fasta.c seqmenttree.c seqparse.c shm.c sparse.c spltdb.c stdnuc.c stdstat.c trim.c tmp.c tsv.c update.c updateindex.c updatescores.c valueshash.c vcf.c xml.c wasm_shm_stubs.c wasm_ringpipe.c
+OBJS = $(SRCS:%.c=$(OBJDIR)/%.o)
+
+COMMON = -O3 -std=c99 -include stdint.h -pthread -sUSE_ZLIB=1
+CFLAGS = -Wall -Wno-format $(COMMON)
+
+LDFLAGS = $(COMMON) \
+	-sWASM=1 \
+	-sEXPORTED_FUNCTIONS='["_kma_run","_kma_index_run","_kma_dist_run","_kma_db_run","_kma_merge_run","_kma_cmp_run","_kma_trim_run","_kma_seq2fasta_run","_kma_get_version","_malloc","_free"]' \
+	-sEXPORTED_RUNTIME_METHODS='["ccall","cwrap","UTF8ToString","stringToUTF8","FS","writeAsciiToMemory"]' \
+	-sALLOW_MEMORY_GROWTH=1 \
+	-sINITIAL_MEMORY=67108864 \
+	-sMAXIMUM_MEMORY=4294967296 \
+	-sFORCE_FILESYSTEM=1 \
+	-sEXIT_RUNTIME=0 \
+	-sPTHREAD_POOL_SIZE='Module.kmaPoolSize||10' \
+	-lm -lworkerfs.js
+
+.PHONY: all clean
+
+all: kma32.js
+
+$(OBJDIR):
+	mkdir -p $(OBJDIR)
+
+$(OBJDIR)/%.o: %.c *.h | $(OBJDIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(OBJDIR)/libkma.a: $(OBJS)
+	$(AR) -csr $@ $(OBJS)
+
+kma32.js: wasm_wrapper.c main.c $(OBJDIR)/libkma.a
+	$(CC) $(CFLAGS) -o kma32.js wasm_wrapper.c main.c $(OBJDIR)/libkma.a $(LDFLAGS) --no-entry
+
+clean:
+	$(RM) -r $(OBJDIR) kma32.js kma32.wasm

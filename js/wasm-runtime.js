@@ -1,6 +1,7 @@
 import { getCachedDBFile, cacheDBFile, deleteDBFile } from './db.js';
 import { fetchAssetWithProgress } from './assets.js';
 import { verifyPinned } from './integrity.js';
+import { ENGINE, ENGINE_FORCED, threadCount } from './engine.js';
 
 const DATABASES = {
   resfinder: {
@@ -34,28 +35,24 @@ export function getDatabaseList() {
   return Object.entries(DATABASES).map(([key, db]) => ({ key, ...db }));
 }
 
-// Number of KMA worker threads to request. Bounded by the Emscripten pthread
-// pool baked into kma.js (Math.max(hardwareConcurrency||4, 4)), so this is
-// always <= pool size. Threads require SharedArrayBuffer + cross-origin
-// isolation; without it the (shared-memory) module cannot even load.
-function threadCount() {
-  if (!self.crossOriginIsolated) return 1;
-  return navigator.hardwareConcurrency || 4;
-}
-
 // ── Init / readiness ──
 //
-// Memory64 + pthreads need cross-origin isolation (SharedArrayBuffer). The
-// coi-serviceworker shim (loaded first in index.html) establishes it, reloading
-// once on first visit. The KMA module itself is loaded per-run inside a Web
-// Worker, so there is nothing heavy to pre-initialise here.
+// Both builds (wasm64, and the wasm32 fallback for browsers without Memory64;
+// see engine.js) use pthreads, which need cross-origin isolation
+// (SharedArrayBuffer). The coi-serviceworker shim (loaded first in
+// index.html) establishes it, reloading once on first visit. The KMA module
+// itself is loaded per-run inside a Web Worker, so there is nothing heavy to
+// pre-initialise here.
 
 export async function initWasm() {
   if (typeof Worker === 'undefined') {
     throw new Error('Web Workers are unavailable in this browser.');
   }
   if (self.crossOriginIsolated) {
-    log(`Ready. Memory64 build, up to ${threadCount()} threads`, 'ok');
+    const threads = `up to ${threadCount()} thread${threadCount() === 1 ? '' : 's'}`;
+    log(ENGINE === 'wasm64'
+      ? `Ready. Memory64 build, ${threads}`
+      : `Ready. 32-bit build (${ENGINE_FORCED ? 'forced by ?engine=wasm32' : 'this browser has no WebAssembly Memory64'}), ${threads}`, 'ok');
   } else {
     log('Cross-origin isolation is not active. The page should reload once to enable it. If this warning stays, this browser cannot run the multithreaded engine.', 'warn');
   }
@@ -152,7 +149,7 @@ export async function preloadDatabase(key, onProgress, onFile) {
 
 export async function runAnalysis(files, dbKey, config = {}) {
   if (!self.crossOriginIsolated) {
-    throw new Error('Cross-origin isolation is not active. Reload the page. Multithreading and Memory64 require it.');
+    throw new Error('Cross-origin isolation is not active. Reload the page. The multithreaded engine requires it.');
   }
 
   const db = DATABASES[dbKey] || DATABASES.resfinder;
@@ -223,7 +220,7 @@ export async function runAnalysis(files, dbKey, config = {}) {
   log(`KMA alignment in progress (${threads} thread${threads === 1 ? '' : 's'})...`, 'progress');
 
   const t0 = performance.now();
-  const result = await runInWorker({ mkdirs, writes, inputFiles, args: argsStr, outputs }, transfer);
+  const result = await runInWorker({ mkdirs, writes, inputFiles, args: argsStr, outputs, engine: ENGINE, threads }, transfer);
   const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
 
   if (result.exitCode === 0) {
@@ -252,7 +249,7 @@ function runInWorker(job, transfer) {
   return new Promise((resolve, reject) => {
     let worker;
     try {
-      worker = new Worker(new URL('./kma-runner.worker.js', import.meta.url));
+      worker = new Worker(new URL('./kma-runner.worker.js?v=wasm32a', import.meta.url));
     } catch (e) {
       reject(new Error('Failed to start KMA worker: ' + (e.message || e)));
       return;

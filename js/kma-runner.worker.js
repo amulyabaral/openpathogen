@@ -11,31 +11,58 @@
  * importScripts() the Emscripten glue, which is itself a classic script.
  */
 
-const KMA_JS_URL = new URL('../kma/kma.js', self.location.href).href;
+// ?v= busts caches when the build changes (old glue + new wasm must not mix)
+const KMA_BUILD = 'wasm32a';
 const KMA_DIR_URL = new URL('../kma/', self.location.href).href;
 
 let modulePromise = null;
 
-// Load + initialise the Emscripten module once in this worker.
-function loadModule() {
+// A shared memory reserves its maximum up front, and phones refuse large
+// reservations, so the wasm32 build gets the largest maximum the device
+// accepts (the module's own ceiling is 4 GB). Returns [memory, MB].
+function createWasm32Memory() {
+  const initial = 67108864 / 65536; // INITIAL_MEMORY in Makefile.wasm32
+  for (const mb of [4096, 2048, 1024, 512]) {
+    try {
+      return [new WebAssembly.Memory({ initial, maximum: mb * 16, shared: true }), mb];
+    } catch (_) { /* try a smaller reservation */ }
+  }
+  return [null, 0];
+}
+
+// Load + initialise the Emscripten module once in this worker. engine is
+// 'wasm64' (kma.js) or 'wasm32' (kma32.js, for browsers without Memory64).
+function loadModule(engine, threads) {
   if (modulePromise) return modulePromise;
+  const jsName = engine === 'wasm32' ? 'kma32.js' : 'kma.js';
+  const jsUrl = KMA_DIR_URL + jsName + '?v=' + KMA_BUILD;
   modulePromise = new Promise((resolve, reject) => {
     const Module = {
       noExitRuntime: true,
       // KMA spawns its pthread workers via `new Worker(mainScriptUrlOrBlob)`.
-      // We must point that at kma.js itself — importScripts() leaves
+      // We must point that at the glue itself — importScripts() leaves
       // self.location (and Emscripten's _scriptName) pointing at THIS runner
       // script, which would spawn the wrong file as a pthread.
-      mainScriptUrlOrBlob: KMA_JS_URL,
-      locateFile(path) { return KMA_DIR_URL + path; },
+      mainScriptUrlOrBlob: jsUrl,
+      locateFile(path) { return KMA_DIR_URL + path + '?v=' + KMA_BUILD; },
       print(text) { post({ type: 'log', level: 'stdout', text }); },
       printErr(text) { post({ type: 'log', level: 'stderr', text }); },
       onRuntimeInitialized() { resolve(Module); },
       onAbort(reason) { reject(new Error('KMA module aborted: ' + reason)); },
     };
+    if (engine === 'wasm32') {
+      // Same pool rule as the wasm64 build: producer and consumer stages
+      // may each run -t threads, plus the pipe threads.
+      Module.kmaPoolSize = 2 * Math.max(threads || 4, 4) + 2;
+      const [memory, mb] = createWasm32Memory();
+      if (memory) {
+        Module.wasmMemory = memory;
+        post({ type: 'log', level: 'info', text: `32-bit engine, memory limit ${mb >= 1024 ? mb / 1024 + ' GB' : mb + ' MB'}` });
+      }
+    }
     self.Module = Module;
     try {
-      importScripts(KMA_JS_URL);
+      importScripts(jsUrl);
     } catch (e) {
       reject(e);
     }
@@ -72,7 +99,7 @@ self.onmessage = async (e) => {
   if (!job || job.type !== 'run') return;
 
   try {
-    const Module = await loadModule();
+    const Module = await loadModule(job.engine, job.threads);
     const FS = Module.FS;
 
     // Stage the database + input files into MEMFS at the planned paths.

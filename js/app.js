@@ -7,6 +7,7 @@ import { lookupRun } from './fetch-run.js';
 import { loadAssociations, resolveSpecies } from './cabbage.js';
 import { describeHit, describeFunction, cardAroUrl } from './genes.js';
 import { mountReport, DB_NAMES } from './report.js';
+import { ENGINE, WASM32_INPUT_WARN_BYTES } from './engine.js';
 import {
   runComprehensive, setFastpLog, summariseQc, qcVerdict, fmtPct, COMPREHENSIVE_DBS,
 } from './comprehensive.js';
@@ -567,7 +568,11 @@ function updateRunButton() {
   btn.disabled = !ready;
   btn.title = haveDb ? '' : 'Select at least one database.';
   if (hint) {
-    if (ready || state.running || !state.wasmReady) {
+    if (ready && inputTooLargeForEngine()) {
+      // Not a limit: the run may still fit, but say why it might fail.
+      hint.hidden = false;
+      hint.textContent = `These reads (${formatBytes(inputBytes())}) are large for this browser, which runs the 32-bit engine (no WebAssembly Memory64). The run may run out of memory, most likely on a phone. Chrome or Firefox on a computer handles large inputs.`;
+    } else if (ready || state.running || !state.wasmReady) {
       hint.hidden = true;
     } else if (!haveDb) {
       hint.hidden = false;
@@ -580,6 +585,15 @@ function updateRunButton() {
       hint.textContent = 'Add the reverse reads (R2) file to run paired-end analysis.';
     }
   }
+}
+
+function inputBytes() {
+  const { r1, r2 } = state.files;
+  return (r1?.size || 0) + (state.readType === 'paired' ? (r2?.size || 0) : 0);
+}
+
+function inputTooLargeForEngine() {
+  return ENGINE === 'wasm32' && inputBytes() > WASM32_INPUT_WARN_BYTES;
 }
 
 // ── Example data ──

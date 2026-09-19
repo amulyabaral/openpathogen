@@ -1,0 +1,19 @@
+--- a/kma.c	2026-02-22 15:59:38
++++ b/kma.c	2026-09-19 18:59:52
+@@ -63,7 +63,7 @@
+ 			new_len += 2;
+ 		}
+ 		new_len += strlen(strings[i]);
+-		if(strncmp(strings[i], "-i", 2) == 0) {
++		if(*strings[i] == '-' && (strings[i][1] == 'i' || strings[i][1] == 'o')) {
+ 			escape = 1;
+ 		}
+ 	}
+@@ -96,6 +96,7 @@
+ 			escape = 1;
+ 		}
+ 	}
++	*stringPtr = 0;
+ 	
+ 	return newStr;
+ }

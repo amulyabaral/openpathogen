@@ -6,6 +6,7 @@
  */
 
 import { runAnalysis } from './wasm-runtime.js';
+import { ENGINE } from './engine.js';
 
 export const COMPREHENSIVE_DBS = [
   { key: 'resfinder', label: 'Resistance genes (ResFinder)', kind: 'amr' },
@@ -15,7 +16,7 @@ export const COMPREHENSIVE_DBS = [
 
 export function runFastp(files, { paired, nanopore, options } = {}) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./fastp-runner.worker.js?v=wasm64', import.meta.url));
+    const worker = new Worker(new URL('./fastp-runner.worker.js?v=wasm32a', import.meta.url));
     worker.onmessage = (e) => {
       const m = e.data;
       if (m.type === 'log') {
@@ -32,7 +33,7 @@ export function runFastp(files, { paired, nanopore, options } = {}) {
       worker.terminate();
       reject(new Error(err.message || 'fastp worker crashed'));
     };
-    worker.postMessage({ type: 'run', files, paired, nanopore, options });
+    worker.postMessage({ type: 'run', files, paired, nanopore, options, engine: ENGINE });
   });
 }
 

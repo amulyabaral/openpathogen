@@ -121,7 +121,7 @@
         <li>Click any gene name in the report or the gene tables to see its coverage, consensus sequence, alignment and variants.</li>
         <li><strong>Print / save PDF</strong> prints the report with every gene table expanded. In the print dialog, choose "Save as PDF" to keep a file.</li>
         <li>The results ZIP contains, per database, <code>.res</code>, <code>.aln</code>, <code>.fsa</code>, <code>.frag.gz</code>, <code>.mat.gz</code>, <code>.vcf.gz</code> and <code>.mapstat</code>, plus the fastp reports, the CABBAGE table as CSV and the run log.</li>
-        <li>openpathogen needs a browser with <code>SharedArrayBuffer</code> support: recent Chrome, Firefox, Edge or Safari.</li>
+        <li>openpathogen needs a browser with <code>SharedArrayBuffer</code> support: recent Chrome, Firefox, Edge or Safari, on a computer or a phone. Chrome, Edge and Firefox run the 64-bit engine, which can use more than 4 GB of memory. Safari and every browser on iPhone and iPad run a 32-bit build of the same tools, which gives the same results but has at most 4 GB of memory, and much less on a phone. On a phone, keep inputs small (the example, or a few hundred MB) and keep the page open and the screen on until the run finishes.</li>
       </ul>
     </section>
 

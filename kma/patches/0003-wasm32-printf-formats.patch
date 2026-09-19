@@ -1,0 +1,453 @@
+KMA 1.5.1: print 64-bit counters with <inttypes.h> formats
+
+Several fprintf calls pass uint64_t values with %lu/%ld. That is only
+correct where `long` is 64-bit (LP64). On ILP32 targets such as wasm32
+(the openpathogen fallback engine for browsers without Memory64), the
+varargs are misread and every later field is garbage: .mapstat columns
+shift (readCount, bpTotal, depth ... all wrong) and progress lines and the
+QC JSON print nonsense. .res is unaffected (it uses its own formats).
+
+Use PRIu64 for uint64_t arguments (and PRId64 with a cast for time_t in
+the XML header). On LP64 native and wasm64 builds the output is unchanged;
+clang -Wformat is now clean on native, wasm64 and wasm32.
+
+--- a/cmp.c
++++ b/cmp.c
+@@ -18,6 +18,7 @@
+ */
+ 
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <limits.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -87,7 +88,7 @@
+ 	int i;
+ 	char Kmer[kmersize + 1], bases[4] = "ACGT";
+ 	
+-	fprintf(stderr, "Kmer:\t%lu\n", kmer);
++	fprintf(stderr, "Kmer:\t%" PRIu64 "\n", kmer);
+ 	i = kmersize;
+ 	Kmer[i] = 0;
+ 	while(i--) {
+@@ -107,13 +108,13 @@
+ 	
+ 	/* cmp base structure, and set pointers */
+ 	if(t1->n != t2->n || t1->v_index != t2->v_index || t1->mlen != t2->mlen || t1->kmersize != t2->kmersize || t1->flag != t2->flag || t1->prefix_len != t2->prefix_len || t1->prefix || t2->prefix || t1->DB_size != t2->DB_size) {
+-		fprintf(stderr, "n:\t%lu, %lu\n", t1->n, t2->n);
+-		fprintf(stderr, "v_index:\t%lu, %lu\n", t1->v_index, t2->v_index);
++		fprintf(stderr, "n:\t%" PRIu64 ", %" PRIu64 "\n", t1->n, t2->n);
++		fprintf(stderr, "v_index:\t%" PRIu64 ", %" PRIu64 "\n", t1->v_index, t2->v_index);
+ 		fprintf(stderr, "mlen:\t%d, %d\n", t1->mlen, t2->mlen);
+ 		fprintf(stderr, "kmersize:\t%d, %d\n", t1->kmersize, t2->kmersize);
+ 		fprintf(stderr, "flag:\t%d, %d\n", t1->flag, t2->flag);
+ 		fprintf(stderr, "prefix_len:\t%d, %d\n", t1->prefix_len, t2->prefix_len);
+-		fprintf(stderr, "prefix:\t%lu, %lu\n", t1->prefix, t2->prefix);
++		fprintf(stderr, "prefix:\t%" PRIu64 ", %" PRIu64 "\n", t1->prefix, t2->prefix);
+ 		fprintf(stderr, "DB_size:\t%d, %d\n", t1->DB_size, t2->DB_size);
+ 		return 1;
+ 	} else if(t1->DB_size < USHRT_MAX) {
+--- a/db.c
++++ b/db.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <limits.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -50,7 +51,7 @@
+ 	ntcount = 4 * ftell(dbfile);
+ 	fclose(dbfile);
+ 	filename[filename_len] = 0;
+-	fprintf(stdout, "# nucleotides:\t%lu\n", ntcount);
++	fprintf(stdout, "# nucleotides:\t%" PRIu64 "\n", ntcount);
+ 	
+ 	/* load database */
+ 	strcpy(filename + filename_len, ".comp.b");
+@@ -82,9 +83,9 @@
+ 	} else if(templates->prefix != 0) {
+ 		fprintf(stdout, "prefix:\t-\n");
+ 	}
+-	fprintf(stdout, "# uniq k-mers:\t%lu\n", templates->n);
++	fprintf(stdout, "# uniq k-mers:\t%" PRIu64 "\n", templates->n);
+ 	fprintf(stdout, "k-mer fraction covered:\t%f\n", templates->n / power(4, templates->kmersize));
+-	fprintf(stdout, "inferred tax size:\t%lu\n", templates->v_index);
++	fprintf(stdout, "inferred tax size:\t%" PRIu64 "\n", templates->v_index);
+ 	fflush(stdout);
+ 	
+ 	/* get number of unique inferred tax */
+@@ -107,7 +108,7 @@
+ 			values += i;
+ 		}
+ 	}
+-	fprintf(stdout, "# inferred taxids:\t%lu\n", ntax);
++	fprintf(stdout, "# inferred taxids:\t%" PRIu64 "\n", ntax);
+ 	fflush(stdout);
+ 	
+ 	/* get min, max, mean and variance of k-mer uniqueness */
+--- a/ef.c
++++ b/ef.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <math.h>
+ #include <stdio.h>
+ #include <time.h>
+@@ -129,7 +130,7 @@
+ void printExtendedFeatures(char *template_name, Assem *aligned_assem, unsigned fragmentCount, unsigned readCount, FILE *outfile) {
+ 	
+ 	if(aligned_assem) {
+-		fprintf(outfile, "%s\t%u\t%u\t%lu\t%u\t%u\t%lu\t%f\t%u\t%u\t%lu\t%lu\t%lu\t%u\t%u\n", template_name, readCount, fragmentCount, aligned_assem->score, aligned_assem->aln_len, aligned_assem->cover, aligned_assem->depth, aligned_assem->var, aligned_assem->nucHighVar, aligned_assem->maxDepth, aligned_assem->snpSum, aligned_assem->insertSum, aligned_assem->deletionSum, aligned_assem->readCountAln, aligned_assem->fragmentCountAln);
++		fprintf(outfile, "%s\t%u\t%u\t%" PRIu64 "\t%u\t%u\t%" PRIu64 "\t%f\t%u\t%u\t%" PRIu64 "\t%" PRIu64 "\t%" PRIu64 "\t%u\t%u\n", template_name, readCount, fragmentCount, aligned_assem->score, aligned_assem->aln_len, aligned_assem->cover, aligned_assem->depth, aligned_assem->var, aligned_assem->nucHighVar, aligned_assem->maxDepth, aligned_assem->snpSum, aligned_assem->insertSum, aligned_assem->deletionSum, aligned_assem->readCountAln, aligned_assem->fragmentCountAln);
+ 	} else {
+ 		fprintf(outfile, "%s\t%u\t%u\t%u\t%u\t%u\t%u\t%f\t%u\t%u\t%u\t%u\t%u\t%u\t%u\n", template_name, 0, 0, 0, 0, 0, 0, 0.0, 0, 0, 0, 0, 0, 0, 0);
+ 	}
+--- a/kma.c
++++ b/kma.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <limits.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -1585,7 +1586,7 @@
+ 				fclose(out_json);
+ 			}
+ 			
+-			fprintf(stderr, "#\n# Total number of query fragment after trimming:\t%lu\n", totFrags);
++			fprintf(stderr, "#\n# Total number of query fragment after trimming:\t%" PRIu64 "\n", totFrags);
+ 			
+ 			status |= errno;
+ 			
+--- a/makeindex.c
++++ b/makeindex.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <ctype.h>
+ #include <errno.h>
+ #include <limits.h>
+@@ -276,7 +277,7 @@
+ 	fclose(name_out);
+ 	
+ 	if(templates->n) {
+-		fprintf(stderr, "# Templates key-value pairs:\t%lu.\n", templates->n);// / 1048576);
++		fprintf(stderr, "# Templates key-value pairs:\t%" PRIu64 ".\n", templates->n);// / 1048576);
+ 	} else {
+ 		fprintf(stderr, "DB is empty!!!\n");
+ 		exit((errno | 1));
+--- a/merge.c
++++ b/merge.c
+@@ -18,6 +18,7 @@
+ */
+ 
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <limits.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -720,7 +721,7 @@
+ 	
+ 	/* test if everything was read */
+ 	if(dest->n != n) {
+-		fprintf(stderr, "Did not get the expected pairs., %lu, %lu\n", dest->n, n);
++		fprintf(stderr, "Did not get the expected pairs., %" PRIu64 ", %" PRIu64 "\n", dest->n, n);
+ 		exit(1);
+ 	}
+ 	
+@@ -1437,11 +1438,11 @@
+ 	middle = MiddleLayer_init(1048576);
+ 	org_split = MiddleLayer_populate(middle, t1, 0);
+ 	if(org_split != t1->v_index) {
+-		fprintf(stderr, "middle t1 (%lu) does not match v_index1 (%lu)\n", t1->v_index, org_split);
++		fprintf(stderr, "middle t1 (%" PRIu64 ") does not match v_index1 (%" PRIu64 ")\n", t1->v_index, org_split);
+ 	}
+ 	alt_split = MiddleLayer_populate(middle, t2, t1->v_index);
+ 	if(alt_split != (t1->v_index + t2->v_index)) {
+-		fprintf(stderr, "middle t2 (%lu) does not match v_index2 (%lu)\n", t1->v_index + t2->v_index, alt_split);
++		fprintf(stderr, "middle t2 (%" PRIu64 ") does not match v_index2 (%" PRIu64 ")\n", t1->v_index + t2->v_index, alt_split);
+ 	}
+ 	MiddleLayer_readjust(middle); /* free up unused space */
+ 	alternative = AlternativeLayer_init(1024);
+--- a/mt1.c
++++ b/mt1.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <fcntl.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -433,7 +434,7 @@
+ 		}
+ 		if(ID_t <= id && 0 < id && Depth_t <= depth) {
+ 			/* Output result */
+-			fprintf(res_out, "%s\t%8lu\t%8d\t%8d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%4.1e\n",
++			fprintf(res_out, "%s\t%8" PRIu64 "\t%8d\t%8d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%4.1e\n",
+ 				thread->template_name, read_score, 0, t_len, id, cover, q_id, q_cover, (double) depth, (double) read_score, p_value);
+ 			if(tsv) {
+ 				printsv(tsv_out, tsv, thread->template_name, aligned_assem, t_len, aligned_assem->readCountAln, read_score, 0, (double) read_score, p_value, read_score);
+@@ -452,7 +453,7 @@
+ 		/* destroy this DB index */
+ 		hashMapCCI_destroy(template_index);
+ 	} else if(ID_t == 0.0) {
+-		fprintf(res_out, "%s\t%8ld\t%8u\t%8d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%4.1e\n",
++		fprintf(res_out, "%s\t%8" PRIu64 "\t%8u\t%8d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%4.1e\n",
+ 				thread->template_name, read_score, 0, t_len, 0.0, 0.0, 0.0, 0.0, (double) depth, (double) read_score, p_value);
+ 		if(tsv) {
+ 			printsv(tsv_out, tsv, thread->template_name, aligned_assem, t_len, aligned_assem->readCountAln, read_score, 0, (double) read_score, p_value, read_score);
+--- a/qc.c
++++ b/qc.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ 
++#include <inttypes.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <math.h>
+@@ -185,12 +186,12 @@
+ 	}
+ 	
+ 	/* results */
+-	n += fprintf(dest, "\t\"Fragment Count\": %lu,\n", src->fragcount);
+-	n += fprintf(dest, "\t\"Org. Fragment Count\": %lu,\n", src->org_fragcount);
+-	n += fprintf(dest, "\t\"Sequence Count\": %lu,\n", src->count);
+-	n += fprintf(dest, "\t\"Org. Sequence Count\": %lu,\n", src->org_count);
+-	n += fprintf(dest, "\t\"Bp Count\": %lu,\n", src->bpcount);
+-	n += fprintf(dest, "\t\"Org. Bp Count\": %lu,\n", src->org_bpcount);
++	n += fprintf(dest, "\t\"Fragment Count\": %" PRIu64 ",\n", src->fragcount);
++	n += fprintf(dest, "\t\"Org. Fragment Count\": %" PRIu64 ",\n", src->org_fragcount);
++	n += fprintf(dest, "\t\"Sequence Count\": %" PRIu64 ",\n", src->count);
++	n += fprintf(dest, "\t\"Org. Sequence Count\": %" PRIu64 ",\n", src->org_count);
++	n += fprintf(dest, "\t\"Bp Count\": %" PRIu64 ",\n", src->bpcount);
++	n += fprintf(dest, "\t\"Org. Bp Count\": %" PRIu64 ",\n", src->org_bpcount);
+ 	
+ 	n += fprintf(dest, "\t\"Mean Read Length\": %f,\n", src->count ? ((double)(src->bpcount) / src->count) : 0);
+ 	n += fprintf(dest, "\t\"Org. Mean Read Length\": %f,\n", src->org_count ? ((double)(src->org_bpcount) / src->org_count) : 0);
+--- a/runkma.c
++++ b/runkma.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <fcntl.h>
+ #include <limits.h>
+ #include <pthread.h>
+@@ -769,7 +770,7 @@
+ 		if(w_scores[template] > 0) {
+ 			if(verbose) {
+ 				counter += w_scores[template];
+-				fprintf(stderr, "# %d / %d\t%lu\t%3lu%%\n", template, DB_size, w_scores[template], 100 * counter / Nhits);
++				fprintf(stderr, "# %d / %d\t%" PRIu64 "\t%3" PRIu64 "%%\n", template, DB_size, w_scores[template], 100 * counter / Nhits);
+ 			}
+ 			/* make p_value to see whether assembly is feasable */
+ 			read_score = w_scores[template];
+@@ -1149,7 +1150,7 @@
+ 			/* verbose */
+ 			if(verbose && verbose++ == 1024) {
+ 				Nhits += verbose - 1;
+-				fprintf(stderr, "# Scored %ld query sequences.\n", Nhits);
++				fprintf(stderr, "# Scored %" PRIu64 " query sequences.\n", Nhits);
+ 				verbose = 1;
+ 			}
+ 		}
+@@ -1163,7 +1164,7 @@
+ 	/* verbose */
+ 	if(verbose) {
+ 		Nhits += verbose - 1;
+-		fprintf(stderr, "# Scored %ld query sequences.\n", Nhits);
++		fprintf(stderr, "# Scored %" PRIu64 " query sequences.\n", Nhits);
+ 		verbose = 1;
+ 	}
+ 	kmaPipe(0, 0, inputfile, &i);
+@@ -1471,11 +1472,11 @@
+ 		if(w_scores[template] > 0) {
+ 			if(progress) {
+ 				counter += w_scores[template];
+-				fprintf(stderr, "# Progress:\t%3lu%%\r", 100 * counter / Nhits);
++				fprintf(stderr, "# Progress:\t%3" PRIu64 "%%\r", 100 * counter / Nhits);
+ 				fflush(stderr);
+ 			} else if(verbose) {
+ 				counter += w_scores[template];
+-				fprintf(stderr, "# %d / %d\t%lu\t%3lu%%\n", template, DB_size, w_scores[template], 100 * counter / Nhits);
++				fprintf(stderr, "# %d / %d\t%" PRIu64 "\t%3" PRIu64 "%%\n", template, DB_size, w_scores[template], 100 * counter / Nhits);
+ 			}
+ 			
+ 			/* make p_value to see whether assembly is feasable */
+--- a/sparse.c
++++ b/sparse.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -469,7 +470,7 @@
+ 		deConTable = Collecter[1];
+ 		free(Collecter);
+ 		
+-		fprintf(stderr, "# Total number of matches: %lu of %lu kmers\n", Nhits.tot, Ntot);
++		fprintf(stderr, "# Total number of matches: %" PRIu64 " of %" PRIu64 " kmers\n", Nhits.tot, Ntot);
+ 		/* copy scores */
+ 		w_Scores = smalloc(templates->DB_size * sizeof(unsigned));
+ 		w_Scores_tot = smalloc(templates->DB_size * sizeof(uint64_t));
+@@ -628,7 +629,7 @@
+ 				tot_query_cover = 100.0 * (Scores_tot[template] + score_tot_add) / Ntot;
+ 				
+ 				/* output results */
+-				fprintf(sparse_out, "%s\t%d\t%lu\t%d\t%d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%f\t%e\n", 
++				fprintf(sparse_out, "%s\t%d\t%" PRIu64 "\t%d\t%d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%f\t%e\n", 
+ 					template_names[template], template, score, (int) expected, template_lengths[template], query_cover, cover, depth, tot_query_cover, tot_cover, tot_depth, q_value, p_value);
+ 				
+ 				/* update scores */
+@@ -651,7 +652,7 @@
+ 		/* collect scores */
+ 		kmerList = collect_Kmers(templates, Scores, Scores_tot, foundKmers, &Nhits);
+ 		
+-		fprintf(stderr, "# Total number of matches: %lu of %lu kmers\n", Nhits.tot, Ntot);
++		fprintf(stderr, "# Total number of matches: %" PRIu64 " of %" PRIu64 " kmers\n", Nhits.tot, Ntot);
+ 		/* copy scores */
+ 		w_Scores = smalloc(templates->DB_size * sizeof(int));
+ 		w_Scores_tot = smalloc(templates->DB_size * sizeof(uint64_t));
+@@ -775,7 +776,7 @@
+ 				tot_cover = 100.0 * Scores[template] / template_ulengths[template];
+ 				tot_depth = 1.0 * Scores_tot[template] / template_lengths[template];
+ 				tot_query_cover = 100.0 * Scores_tot[template] / Ntot;
+-				fprintf(sparse_out, "%s\t%d\t%lu\t%d\t%d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%4.1e\n", 
++				fprintf(sparse_out, "%s\t%d\t%" PRIu64 "\t%d\t%d\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%8.2f\t%4.1e\n", 
+ 					template_names[template], template, score, (int) expected, template_ulengths[template], query_cover, cover, depth, tot_query_cover, tot_cover, tot_depth, q_value, p_value);
+ 				
+ 				/* update scores */
+--- a/spltdb.c
++++ b/spltdb.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <fcntl.h>
+ #include <limits.h>
+ #include <pthread.h>
+@@ -710,7 +711,7 @@
+ 			/* verbose */
+ 			if(verbose && verbose++ == 1024) {
+ 				Nhits += verbose - 1;
+-				fprintf(stderr, "# Scored %ld query sequences.\n", Nhits);
++				fprintf(stderr, "# Scored %" PRIu64 " query sequences.\n", Nhits);
+ 				verbose = 1;
+ 			}
+ 		}
+@@ -798,7 +799,7 @@
+ 	/* verbose */
+ 	if(verbose) {
+ 		Nhits += verbose - 1;
+-		fprintf(stderr, "# Scored %ld query sequences.\n", Nhits);
++		fprintf(stderr, "# Scored %" PRIu64 " query sequences.\n", Nhits);
+ 		verbose = 1;
+ 	}
+ 	/* get fragmentCount */
+@@ -1130,11 +1131,11 @@
+ 		} else if(w_scores[template] > 0) {
+ 			if(progress) {
+ 				counter += w_scores[template];
+-				fprintf(stderr, "# Progress:\t%3lu%%\r", 100 * counter / Nhits);
++				fprintf(stderr, "# Progress:\t%3" PRIu64 "%%\r", 100 * counter / Nhits);
+ 				fflush(stderr);
+ 			} else if(verbose) {
+ 				counter += w_scores[template];
+-				fprintf(stderr, "# %d / %d\t%lu\t%3lu%%\n", template, DB_size, w_scores[template], 100 * counter / Nhits);
++				fprintf(stderr, "# %d / %d\t%" PRIu64 "\t%3" PRIu64 "%%\n", template, DB_size, w_scores[template], 100 * counter / Nhits);
+ 			}
+ 			
+ 			/* make p_value to see whether assembly is feasable */
+--- a/trim.c
++++ b/trim.c
+@@ -16,6 +16,7 @@
+  * See the License for the specific language governing permissions and
+  * limitations under the License.
+ */
++#include <inttypes.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include "compdna.h"
+@@ -466,7 +467,7 @@
+ 		fclose(out_json);
+ 	}
+ 	
+-	fprintf(stderr, "#\n# Total number of query fragment after trimming:\t%lu\n", totFrags);
++	fprintf(stderr, "#\n# Total number of query fragment after trimming:\t%" PRIu64 "\n", totFrags);
+ 	
+ 	return 0;
+ }
+--- a/tsv.c
++++ b/tsv.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ 
++#include <inttypes.h>
+ #include <stdio.h>
+ #include <math.h>
+ #include "assembly.h"
+@@ -89,7 +90,7 @@
+ 	printsvField(flag, outfile, "%d%c", aligned_assem->readCountAln);
+ 	
+ 	/* 1024	Score */
+-	printsvField(flag, outfile, "%lu%c", read_score);
++	printsvField(flag, outfile, "%" PRIu64 "%c", read_score);
+ 	
+ 	/* 2048	Expected */
+ 	printsvField(flag, outfile, "%f%c", expected);
+@@ -101,7 +102,7 @@
+ 	printsvField(flag, outfile, "%e%c", p_value);
+ 	
+ 	/* 16384	ConClave_Score */
+-	printsvField(flag, outfile, "%lu%c", ConClave_Score);
++	printsvField(flag, outfile, "%" PRIu64 "%c", ConClave_Score);
+ 	
+ 	/* 32768	ConClave_Quality */
+ 	printsvField(flag, outfile, "%f%c", 40.0 * read_score / ConClave_Score * log(read_score));
+--- a/xml.c
++++ b/xml.c
+@@ -17,6 +17,7 @@
+  * limitations under the License.
+ */
+ #define _XOPEN_SOURCE 600
++#include <inttypes.h>
+ #include <math.h>
+ #include <stdio.h>
+ #include <time.h>
+@@ -35,7 +36,7 @@
+ 	fprintf(out, "\t<BlastOutput_version>KMA %s</BlastOutput_version>\n", KMA_VERSION);
+ 	fprintf(out, "\t<BlastOutput_reference>Philip T.L.C. Clausen, Frank M. Aarestrup & Ole Lund, \"Rapid and precise alignment of raw reads against redundant databases with KMA\", BMC Bioinformatics, 2018;19:307.</BlastOutput_reference>\n");
+ 	fprintf(out, "\t<BlastOutput_db>%s</BlastOutput_db>\n", templatefilename);
+-	fprintf(out, "\t<BlastOutput_query-ID>kma-%s-%ld</BlastOutput_query-ID>\n", templatefilename, time(NULL));
++	fprintf(out, "\t<BlastOutput_query-ID>kma-%s-%" PRId64 "</BlastOutput_query-ID>\n", templatefilename, (int64_t) time(NULL));
+ 	fprintf(out, "\t<BlastOutput_query-def>%s</BlastOutput_query-def>\n", "nucl");
+ 	fprintf(out, "\t<BlastOutput_query-len>%d</BlastOutput_query-len>\n", totFrags);
+ 	fprintf(out, "\t<BlastOutput_param>\n");
+@@ -133,9 +134,9 @@
+ 	fprintf(out, "\t<Iteration_stat>\n");
+ 	fprintf(out, "\t\t<Statistics>\n");
+ 	fprintf(out, "\t\t\t<Statistics_db-num>%d</Statistics_db-num>\n", DB_size);
+-	fprintf(out, "\t\t\t<Statistics_db-len>%ld</Statistics_db-len>\n", seqsize);
++	fprintf(out, "\t\t\t<Statistics_db-len>%" PRIu64 "</Statistics_db-len>\n", seqsize);
+ 	fprintf(out, "\t\t\t<Statistics_hsp-len>%d</Statistics_hsp-len>\n", readCounts);
+-	fprintf(out, "\t\t\t<Statistics_eff-space>%lu</Statistics_eff-space>\n", seqsize * t_len);
++	fprintf(out, "\t\t\t<Statistics_eff-space>%" PRIu64 "</Statistics_eff-space>\n", seqsize * t_len);
+ 	fprintf(out, "\t\t\t<Statistics_kappa>%4.1e</Statistics_kappa>\n", p_value * read_score);
+ 	fprintf(out, "\t\t\t<Statistics_lambda>%4.1e</Statistics_lambda>\n", p_value);
+ 	fprintf(out, "\t\t\t<Statistics_entropy>%f</Statistics_entropy>\n", getEntropy(aligned_assem_q, len));

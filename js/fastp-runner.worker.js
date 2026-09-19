@@ -3,7 +3,7 @@
  * worker so it can importScripts() the Emscripten glue, like the KMA runner.
  *
  * Job: { type: 'run', files: [File, File?], paired: bool, nanopore: bool,
- *        options?: object }
+ *        options?: object, engine?: 'wasm64' | 'wasm32' }
  * Posts:
  *   { type:'log', text }                     progress lines
  *   { type:'done', report, reads:[File...], html, paired }  on success
@@ -27,32 +27,52 @@
  */
 
 // ?v= busts caches when the build changes (old glue + new wasm must not mix)
-const FASTP_JS_URL = new URL('../fastp/fastp.js?v=wasm64', self.location.href).href;
+const FASTP_BUILD = 'wasm32a';
 const FASTP_DIR_URL = new URL('../fastp/', self.location.href).href;
 
 const post = (msg, transfer) => self.postMessage(msg, transfer || []);
 
 let modulePromise = null;
 
-function loadModule() {
+// wasm32 build: a shared memory reserves its maximum up front and phones
+// refuse large reservations, so take the largest maximum the device accepts
+// (the module's own ceiling is 4 GB). Same rule as the KMA runner.
+function createWasm32Memory() {
+  const initial = 67108864 / 65536; // INITIAL_MEMORY of the fastp32 build
+  for (const mb of [4096, 2048, 1024, 512]) {
+    try {
+      return new WebAssembly.Memory({ initial, maximum: mb * 16, shared: true });
+    } catch (_) { /* try a smaller reservation */ }
+  }
+  return null;
+}
+
+// engine is 'wasm64' (fastp.js) or 'wasm32' (fastp32.js, for browsers
+// without Memory64; see fastp/WASM_BUILD.md).
+function loadModule(engine) {
   if (modulePromise) return modulePromise;
+  const jsUrl = FASTP_DIR_URL + (engine === 'wasm32' ? 'fastp32.js' : 'fastp.js') + '?v=' + FASTP_BUILD;
   modulePromise = new Promise((resolve, reject) => {
     const Module = {
       noExitRuntime: true,
       locateFile(path) {
-        return FASTP_DIR_URL + path + '?v=wasm64';
+        return FASTP_DIR_URL + path + '?v=' + FASTP_BUILD;
       },
       // pthread workers must spawn from the glue itself, not this runner
       // script (self.location points at js/, like the KMA runner)
-      mainScriptUrlOrBlob: FASTP_JS_URL,
+      mainScriptUrlOrBlob: jsUrl,
       print(text) { post({ type: 'log', text: String(text) }); },
       printErr(text) { post({ type: 'log', text: String(text) }); },
       onRuntimeInitialized() { resolve(Module); },
       onAbort(reason) { reject(new Error('fastp module aborted: ' + reason)); },
     };
+    if (engine === 'wasm32') {
+      const memory = createWasm32Memory();
+      if (memory) Module.wasmMemory = memory;
+    }
     self.Module = Module;
     try {
-      importScripts(FASTP_JS_URL);
+      importScripts(jsUrl);
     } catch (e) {
       reject(e);
     }
@@ -186,7 +206,7 @@ self.onmessage = async (e) => {
   const job = e.data;
   if (!job || job.type !== 'run') return;
   try {
-    const Module = await loadModule();
+    const Module = await loadModule(job.engine);
     const FS = Module.FS;
     for (const dir of ['/tmp', '/in', '/out']) {
       try { FS.mkdir(dir); } catch (_) { /* exists */ }
