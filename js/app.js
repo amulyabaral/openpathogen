@@ -611,6 +611,15 @@ async function loadExample() {
   if (btn.disabled) return;
   btn.disabled = true;
   const original = btn.textContent;
+  // Same thin bar as the database rows, tracking both FASTQs as one download.
+  const prog = document.getElementById('example-prog');
+  const bar = prog?.querySelector('i');
+  const totalBytes = EXAMPLE.files.reduce((n, f) => n + f.bytes, 0);
+  let doneBytes = 0;
+  const setPct = (pct) => {
+    btn.textContent = `Example ↓ ${pct}%`;
+    if (bar) bar.style.width = Math.max(pct, 3) + '%';
+  };
   try {
     setReadType('paired', 'Paired-end: the example is an Illumina MiSeq run.');
     term.push(`Example isolate: ${EXAMPLE.organism} · ENA/SRA ${EXAMPLE.accession}`, 'info');
@@ -625,15 +634,17 @@ async function loadExample() {
         btn.textContent = 'Example (cached)';
       } else {
         term.push(`Downloading ${spec.name} from ENA…`, 'progress');
-        data = await fetchAssetWithProgress(spec.url, spec.bytes, (got, total) => {
-          const pct = total ? Math.min(100, Math.round(100 * got / total)) : 0;
-          btn.textContent = `Example ↓ ${pct}%`;
+        if (prog) prog.hidden = false;
+        setPct(Math.round(100 * doneBytes / totalBytes));
+        data = await fetchAssetWithProgress(spec.url, spec.bytes, (got) => {
+          setPct(Math.min(100, Math.round(100 * (doneBytes + Math.min(got, spec.bytes)) / totalBytes)));
         });
         term.push(`${spec.name} (${formatBytes(data.byteLength)})`, 'ok');
         try { await cacheDBFile(cacheKey, data); } catch (_) {
           term.push('Could not cache the FASTQ in the browser; the next load will download it again.', 'warn');
         }
       }
+      doneBytes += spec.bytes;
       const file = new File([data], spec.name, { type: 'application/gzip' });
       setFile(spec.slot, file);
     }
@@ -648,6 +659,8 @@ async function loadExample() {
   } finally {
     btn.textContent = original;
     btn.disabled = false;
+    if (prog) prog.hidden = true;
+    if (bar) bar.style.width = '0';
   }
 }
 

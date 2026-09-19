@@ -30,7 +30,7 @@
   <meta name="twitter:image:alt" content="openpathogen: browser-based AMR and virulence gene detection. Reads never leave your machine.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="favicon.png">
-  <link rel="stylesheet" href="css/style.css?v=72">
+  <link rel="stylesheet" href="css/style.css?v=73">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -186,6 +186,7 @@
         <button class="btn" id="btn-fetch-run" type="button" title="Fetch sequencing reads from a public run. ENA is queried for organism, platform and layout, and the read type is set automatically. Files are limited to 1 GB each.">Fetch reads</button>
         <button class="btn" id="btn-example" type="button" title="Load the example isolate: S. aureus USA300_TCH1516 (SRR10341524), a 48 MB community-associated MRSA run downloaded from ENA and cached in your browser.">Try an example (MRSA)</button>
       </div>
+      <div class="fetch-prog" id="example-prog" aria-hidden="true" hidden><i></i></div>
       <div class="fetch-meta" id="run-meta" hidden></div>
 
       </div>
@@ -386,7 +387,7 @@
 </div>
 
 <script src="js/vendor/fflate.min.js"></script>
-  <script type="module" src="js/app.js?v=63"></script>
+  <script type="module" src="js/app.js?v=64"></script>
 
 </body>
 </html>

@@ -335,6 +335,9 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 #run-accession{flex:1 1 160px;min-width:140px;max-width:280px}
 .fetch-row{flex-wrap:wrap}
 .fetch-meta{margin:10px 2px 0;font-size:var(--fs-sm);color:var(--muted)}
+.fetch-prog{height:3px;margin-top:10px;background:var(--rule);border-radius:2px;overflow:hidden}
+.fetch-prog[hidden]{display:none}
+.fetch-prog > i{display:block;height:100%;width:0;background:var(--ink);transition:width .2s}
 .fetch-meta b{color:var(--ink);font-weight:600}
 
 /* ── Results report ── */
