@@ -58,23 +58,23 @@
   <article class="doc-content">
 
     <section id="overview">
-      <h1>What openpathogen is and how it works</h1>
+      <h1>What is openpathogen, and how does it work?</h1>
       <p class="doc-byline">Source code on <a href="https://github.com/amulyabaral/openpathogen" target="_blank" rel="noopener">GitHub</a></p>
-      <p class="doc-lede">openpathogen is an open-source tool that finds antimicrobial resistance and virulence genes in sequencing reads. It runs entirely in the browser.</p>
-      <p>It uses <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a> 1.5.1 for read mapping and <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> 0.22 for quality control. Both are compiled from source to <a href="https://webassembly.org/" target="_blank" rel="noopener">WebAssembly</a>.</p>
-      <p>Your data is analysed on your own computer and is never uploaded. This makes it safe to use with clinical or unpublished data.</p>
-      <p>There is no account and no server. The only downloads are the app, the WebAssembly engines and the databases. The <a class="no-arrow" href="#privacy">privacy section</a> lists every request.</p>
-      <p>Databases are downloaded once, checked against pinned SHA-256 hashes and cached in the browser. Repeat runs start at once. The first run against a large database waits for the download.</p>
+      <p class="doc-lede">openpathogen is an open-source platform that screens for antimicrobial resistance and virulence genes in sequencing reads.</p>
+      <p>It uses <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a> v1.5.1 for read mapping and <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> 0.22 for quality control. Both are compiled from source to <a href="https://webassembly.org/" target="_blank" rel="noopener">WebAssembly</a>.</p>
+      <p>Your data is analysed on your own computer and is never uploaded anywhere. This makes it safe to use with clinical or unpublished data.</p>
+      <p>There is no need for account creation and no server. The only downloads are the app, the WebAssembly engines and the databases. More details are in the <a class="no-arrow" href="#privacy">privacy section</a>.</p>
+      <p>Databases are downloaded once, checked against pinned SHA-256 hashes and cached in the browser. Repeat runs can therefore start at once. The first run against a large database might take some time while it fetches the databases from Zenodo.</p>
     </section>
 
     <section id="privacy">
       <h2>Privacy: what leaves your browser</h2>
-      <p>Nothing you upload leaves your machine. A website still makes some network requests. This is the full list, so you can check it against the source code or your browser's network inspector.</p>
+      <p>Nothing you upload leaves your machine. A website ofcourse still makes some network requests. This is the full list of requests, so you can check it against the source code or your browser's network inspector.</p>
       <dl class="defs">
         <dt>Your sequencing files (FASTQ)</dt>
         <dd>Never uploaded and never written to disk. Files are read into memory, processed by WebAssembly and gone when you close the tab. No cookies and no accounts.</dd>
-        <dt>Page views (Cloudflare, the host)</dt>
-        <dd>The site is served by Cloudflare, which sees each request and your IP address like any host does. Page views are counted with Cloudflare Web Analytics, which uses no cookies and no cross-site tracking. When enabled, Cloudflare adds a small beacon script from <code>cloudflareinsights.com</code>. There is no other analytics provider and no tracking code in the app.</dd>
+        <dt>Page views (Cloudflare, the host and goatcounter for analytics)</dt>
+        <dd>The site is served by Cloudflare, which sees each request and your IP address like any webpage host does. Page views are counted with Cloudflare Web Analytics and GoatCounter, which uses no cookies and no cross-site tracking. When enabled, Cloudflare adds a small beacon script from <code>cloudflareinsights.com</code>. There is no other analytics provider and no tracking code in the app.</dd>
         <dt>Databases, CABBAGE snapshot and engines (this site or Zenodo)</dt>
         <dd>The KMA and fastp engines ship with the page. The ResFinder, CARD and VFDB indexes and the CABBAGE snapshot are downloaded once from this site or from <a href="https://zenodo.org/records/22102687" target="_blank" rel="noopener">Zenodo</a> and cached locally. Every file is checked against a pinned SHA-256 hash before it is used. A corrupted or altered download is rejected.</dd>
         <dt>Fetching a public run (only when you ask)</dt>
@@ -86,7 +86,7 @@
     <section id="getting-started">
       <h2>Getting started</h2>
       <ol class="steps">
-        <li>Drop your read files (<code>.fastq</code> or <code>.fastq.gz</code>) on the page or choose them. For paired-end reads, select both files at once and they are matched to R1 and R2 by name. The read type is set for you: two files are paired-end, and a single file is Nanopore or single-end depending on its read lengths. Change it with the <strong>Read type</strong> buttons if needed. Or try the example: <em>S. aureus</em> USA300_TCH1516 (<a href="https://www.ebi.ac.uk/ena/browser/view/SRR10341524" target="_blank" rel="noopener">SRR10341524</a>), a 48 MB MiSeq run of the community-associated MRSA reference strain, downloaded from ENA and cached in your browser. Expect <em>mecA</em>, <em>blaZ</em>, an aminoglycoside gene and a macrolide gene on ResFinder, and PVL and <em>hla</em> on VFDB. You can also fetch any public run by accession (SRR, ERR or DRR) with <strong>Fetch reads</strong>. The species and read type are set from the ENA record. Files are limited to 1 GB each.</li>
+        <li>Drop your read files (<code>.fastq</code> or <code>.fastq.gz</code>) on the page or choose them. For paired-end reads, you can select both files at once and they are matched to R1 and R2 by name. The read type is also set for you as: two files are paired-end, and a single file is Nanopore or single-end depending on its read lengths. You can change it with the <strong>Read type</strong> buttons if needed. Or try the example: <em>S. aureus</em> USA300_TCH1516 (<a href="https://www.ebi.ac.uk/ena/browser/view/SRR10341524" target="_blank" rel="noopener">SRR10341524</a>), a 48 MB MiSeq run of the community-associated MRSA reference strain, downloaded from ENA. The reads are cached in your browser. You can also fetch any public run by accession (SRR, ERR or DRR) with <strong>Fetch reads</strong>. The species and read type are set from the ENA record. Files are limited to 1 GB each.</li>
         <li>Tick the databases to screen against. ResFinder is preselected, and any combination of ResFinder, CARD and VFDB runs in one go. Turn on fastp quality control if you want trimming and filtering, and open its settings to change the defaults.</li>
         <li>Enter the species if you know it. This is optional, and adds CABBAGE tested-resistance rates to the report. You can also set it on the results page.</li>
         <li>Select <strong>Run</strong>. Progress is written to the Logs panel, which shows the exact KMA and fastp commands and their output.</li>
