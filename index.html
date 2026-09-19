@@ -327,15 +327,15 @@
     </section>
 
     <section class="home-info" id="how-it-works" aria-labelledby="how-title">
-      <h2 id="how-title">How openpathogen works</h2>
+      <h2 id="how-title">How does openpathogen work?</h2>
       <div class="info-grid">
         <div>
           <h3>Runs in your browser</h3>
-          <p>fastp and KMA are compiled to WebAssembly and run on your computer. Reads stay in memory and are never sent anywhere. There is no account and no server.</p>
+          <p>We compiled fastp and KMA to WebAssembly and provide indexed database files. Because of this, your sequencing data is processed entirely locally, within your browser by using your own computer (which means there's no big, bulky servers anywhere!). No need to worry about accounts, queing, or data compliance. Once you load the website and fetch the databases, you can even plug it off the internet and it'll still work, even on a smartphone.</p>
         </div>
         <div>
           <h3>Databases</h3>
-          <p>ResFinder and CARD for acquired resistance genes, VFDB for virulence factors. Each index is downloaded once, checked against a pinned SHA-256 hash and cached in the browser.</p>
+          <p>ResFinder and CARD for acquired resistance genes, VFDB for virulence factors. The index is downloaded once, checked against a pinned SHA-256 hash and cached in the browser.</p>
         </div>
         <div>
           <h3>Results by drug class</h3>
@@ -349,7 +349,7 @@
         <dt>Which inputs are supported?</dt>
         <dd>Illumina paired-end, single-end and Oxford Nanopore reads in FASTQ, plain or gzipped. You can also fetch any public run by its SRA or ENA accession. Files up to 1 GB each are handled in memory.</dd>
         <dt>What do the results contain?</dt>
-        <dd>A report that groups the resistance genes by drug class and names the antibiotics they affect, lists the classes with no acquired gene, and summarises virulence factors. You can print it or save it as a PDF. Behind it: a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, and a ZIP with the full KMA output.</dd>
+        <dd>Resistance genes by drug class and names of the antibiotics they affect, a list of the classes with no acquired gene, and a summary of the virulence factors. You can print it or save it as a PDF. Ofcourse, you can also view the full results in the browser, including a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, and a ZIP with the full KMA output.</dd>
         <dt>How do I cite openpathogen?</dt>
         <dd>A short communication is in preparation. Until then, cite <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a>, <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> and <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">CABBAGE</a>, and the databases you used.</dd>
       </dl>
