@@ -6,6 +6,8 @@
  * gene is opened, so large runs don't pay the gunzip/parse cost until needed.
  */
 
+import { describeHit, cardAroUrl } from './genes.js';
+
 // ── Public entry point ──
 
 // row: a parsed .res row (Template, Template_Identity, …, _phenotype).
@@ -24,7 +26,8 @@ export function openGeneViewer(row, result) {
   // (insertion rows, ref="-", are dropped so POS lines up with VCF POS).
   const depth = matRows ? matRows.filter(r => r.ref !== '-').map(r => r.depth) : [];
 
-  buildModal({ template, row, consensus, alnBlock, depth, variants });
+  const info = describeHit(template, result.database, row);
+  buildModal({ template, row, info, dbLabel: result.dbLabel, consensus, alnBlock, depth, variants });
 }
 
 // ── Lazy parse + cache ──
@@ -138,7 +141,7 @@ function variantType(ref, alt) {
 let activeOverlay = null;
 let lastFocus = null; // element to give focus back to when the dialog closes
 
-function buildModal({ template, row, consensus, alnBlock, depth, variants }) {
+function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, variants }) {
   closeViewer();
 
   const haveAny = consensus || alnBlock || depth.length || variants.length;
@@ -148,13 +151,16 @@ function buildModal({ template, row, consensus, alnBlock, depth, variants }) {
   const overlay = document.createElement('div');
   overlay.className = 'gv-overlay';
   overlay.innerHTML = `
-    <div class="gv-modal" role="dialog" aria-modal="true" aria-label="Gene detail">
+    <div class="gv-modal" role="dialog" aria-modal="true" aria-labelledby="gv-title">
       <div class="gv-head">
-        <div class="gv-title">${esc(template)}</div>
+        <div class="gv-heading">
+          <div class="gv-title" id="gv-title">${esc(info.name)}</div>
+          <div class="gv-sub">${esc(dbLabel || '')} · <span class="gv-template">${esc(template)}</span></div>
+        </div>
         <button class="gv-close" type="button" aria-label="Close">×</button>
       </div>
       <div class="gv-stats">${renderStats(row, meanDepth)}</div>
-      ${renderAnnotation(row)}
+      ${renderAnnotation(info)}
       <div class="gv-tabs">
         <button class="gv-tab active" type="button" data-tab="cov">Coverage</button>
         <button class="gv-tab" type="button" data-tab="seq">Consensus</button>
@@ -225,19 +231,34 @@ function renderStats(row, meanDepth) {
   return items.map(([k, v]) => `<span class="gv-stat"><span class="gv-k">${esc(k)}</span><span class="gv-v">${esc(v)}</span></span>`).join('');
 }
 
-// Functional annotation from the ResFinder phenotypes table (null for other DBs).
-function renderAnnotation(row) {
-  const p = row._phenotype;
-  if (!p) return '';
+// What the gene is: ResFinder's phenotype entry (for CARD, via the ResFinder
+// gene it matches), or VFDB's product, factor and category.
+function renderAnnotation(info) {
   const items = [];
-  if (p.class) items.push(['Drug class', esc(p.class)]);
-  if (p.phenotype) items.push(['Resistance phenotype', esc(p.phenotype)]);
-  if (p.mechanism) items.push(['Mechanism', esc(p.mechanism)]);
-  const notes = (p.notes || '').split(';').map(s => s.trim()).filter(Boolean).join('; ');
-  if (notes) items.push(['Notes', esc(notes)]);
-  if (p.requiredGene) items.push(['Required gene', esc(p.requiredGene)]);
-  const ref = renderPmid(p.pmid);
-  if (ref) items.push(['Reference', ref]);
+  if (info.vf) {
+    items.push(['Product', esc(info.vf.product)]);
+    items.push(['Virulence factor', esc(info.vf.factor)]);
+    items.push(['Category', esc(info.vf.category)]);
+    items.push(['Reference strain', `<i>${esc(info.vf.organism)}</i>`]);
+  }
+  if (info.db === 'card_homolog') {
+    const url = cardAroUrl(info.aro);
+    items.push(['CARD model', esc(info.name) + (url ? ` · <a href="${url}" target="_blank" rel="noopener">ARO:${esc(info.aro)}</a>` : '')]);
+    if (info.match === 'name') items.push(['ResFinder gene', esc(info.gene)]);
+    else if (info.match === 'family') items.push(['ResFinder gene', `${esc(info.gene)}: not in ResFinder; recognised as a ${esc(info.classes.join(', '))} gene by its family`]);
+    else items.push(['ResFinder gene', 'No match. ResFinder has no drug class for this gene.']);
+  }
+  const p = info.entry;
+  if (p) {
+    if (p.class) items.push(['Drug class', esc(p.class)]);
+    if (p.phenotype) items.push(['Resistance phenotype', esc(p.phenotype)]);
+    if (p.mechanism) items.push(['Mechanism', esc(p.mechanism)]);
+    const notes = (p.notes || '').split(';').map(s => s.trim()).filter(Boolean).join('; ');
+    if (notes) items.push(['Notes', esc(notes)]);
+    if (p.requiredGene) items.push(['Required gene', esc(p.requiredGene)]);
+    const ref = renderPmid(p.pmid);
+    if (ref) items.push(['Reference', ref]);
+  }
   if (!items.length) return '';
   return `<dl class="gv-annot">${items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>`;
 }

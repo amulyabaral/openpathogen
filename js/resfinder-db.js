@@ -64,6 +64,27 @@ function parsePhenotypes(text) {
   return map;
 }
 
+// Case-insensitive gene-name index, built on first use: "blashv-52" →
+// { name: 'blaSHV-52', entry }. blaFamilies maps a beta-lactamase family
+// ("shv", "ctx-m") to its ResFinder prefix, so an allele ResFinder does not
+// list can still be recognised as a beta-lactamase.
+let nameIndex = null;
+
+export function resfinderNameIndex() {
+  if (nameIndex || !phenotypesMap) return nameIndex;
+  const genes = new Map();
+  const blaFamilies = new Map();
+  for (const [key, val] of Object.entries(phenotypesMap)) {
+    if (!Array.isArray(val)) continue; // accession keys hold single entries
+    const k = key.toLowerCase();
+    if (!genes.has(k)) genes.set(k, { name: key, entry: val[0] });
+    const fam = key.match(/^bla([A-Za-z]+(?:-[A-Za-z]+)?)-?\d/);
+    if (fam && !blaFamilies.has(fam[1].toLowerCase())) blaFamilies.set(fam[1].toLowerCase(), 'bla' + fam[1]);
+  }
+  nameIndex = { genes, blaFamilies };
+  return nameIndex;
+}
+
 export function lookupGenePhenotype(geneNameOrAccession) {
   if (!phenotypesMap) return null;
 

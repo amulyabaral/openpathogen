@@ -4,7 +4,9 @@ import { cacheDBFile, getCachedDBFile, clearDBCache } from './db.js';
 import { openGeneViewer } from './gene-view.js';
 import { fetchAssetWithProgress } from './assets.js';
 import { lookupRun } from './fetch-run.js';
-import { collectDetectedGenes, mountCabbageReport } from './cabbage-report.js';
+import { loadAssociations, resolveSpecies } from './cabbage.js';
+import { describeHit, describeFunction, cardAroUrl } from './genes.js';
+import { mountReport, DB_NAMES } from './report.js';
 import {
   runComprehensive, setFastpLog, summariseQc, qcVerdict, fmtPct, COMPREHENSIVE_DBS,
 } from './comprehensive.js';
@@ -14,10 +16,15 @@ const state = {
   files: { r1: null, r2: null },
   wasmReady: false,
   running: false,
-  organism: null, // set when a run's metadata names the species (ENA lookup, example)
+  species: '',        // the species box; filled in for the example and ENA runs
+  speciesAuto: false, // true while that text came from run metadata, not the user
   selectedDbs: new Set(['resfinder']),
   dbCached: new Set(), // indexes already in the IndexedDB cache
 };
+
+// The results on screen: files for the ZIP, the report (for species
+// changes), and the sample name for the printed report's title.
+let current = null;
 
 const term = {
   el: null,
@@ -48,6 +55,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupUploadSlots();
   setupSliders();
   setupRunOptions();
+  setupSpecies();
   // Optional-element wiring is null-safe: a stale cached page (or a cached
   // script against new markup) must never abort the rest of the init.
   document.getElementById('btn-run')?.addEventListener('click', doRun);
@@ -60,9 +68,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('workspace').classList.remove('show-results');
     window.scrollTo(0, 0); // stacked (phone) layout: back to the top of the form
   });
+  document.getElementById('btn-print')?.addEventListener('click', () => window.print());
+  document.getElementById('btn-zip')?.addEventListener('click', downloadZip);
   document.getElementById('btn-clear-cache')?.addEventListener('click', clearCachedData);
+  setupPrint();
   setupLogsToggle();
   applyReadType();
+  setupSettingsColumn();
 
   const logToTerm = (msg, level) => term.push(msg, level);
   setLogCallback(logToTerm);
@@ -121,10 +133,16 @@ function setupRunOptions() {
     updateRunButton();
   });
   // The settings panel never inflates on its own: a "fastp settings"
-  // expander appears when fastp is on, and only the user opens it.
-  document.getElementById('fastp-toggle')?.addEventListener('click', () => {
+  // expander appears beside the checkbox when fastp is on (reserving its
+  // space, so nothing moves), and only the user opens it.
+  document.getElementById('fastp-toggle')?.addEventListener('click', (e) => {
     fastpExpanded = !fastpExpanded;
     refreshFastpPanel();
+    // Bring the opened panel into view within the Settings column.
+    const col = document.getElementById('settings-col');
+    if (fastpExpanded && col && col.scrollHeight > col.clientHeight) {
+      col.scrollTo({ top: e.currentTarget.offsetTop - col.offsetTop - 60, behavior: 'smooth' });
+    }
   });
   // Sub-toggles gate their own fields: unchecking "Adapter trimming" greys
   // out the sequence inputs, etc.
@@ -153,7 +171,7 @@ function refreshFastpPanel() {
   const paired = state.readType === 'paired';
   const toggle = document.getElementById('fastp-toggle');
   if (toggle) {
-    toggle.hidden = !on;
+    toggle.classList.toggle('is-off', !on);
     toggle.setAttribute('aria-expanded', String(on && fastpExpanded));
   }
   cfg.hidden = !(on && fastpExpanded);
@@ -207,74 +225,326 @@ function collectFastpOptions() {
   return opts;
 }
 
+// ── Settings column height ──
+//
+// On wide windows the whole form fits on screen. The Settings column is
+// capped at the height left in the window and scrolls on its own when it
+// grows (fastp settings open), so the Run button stays in view; once the
+// column reaches its end, the scroll carries on to the page.
+
+function fitSettingsColumn() {
+  const col = document.getElementById('settings-col');
+  const pane = document.querySelector('.pane-config');
+  const cols = col?.parentElement;
+  const card = document.getElementById('run');
+  if (!col || !pane || !cols || !card) return;
+  if (!window.matchMedia('(min-width:960px)').matches) {
+    col.style.maxHeight = '';
+    return;
+  }
+  const paneTop = pane.getBoundingClientRect().top - pane.scrollTop;
+  const colTop = col.getBoundingClientRect().top - paneTop;
+  // Everything below the columns: Run row, card padding and border, and the
+  // pane's bottom padding. None of it depends on the column's height.
+  const below = card.getBoundingClientRect().bottom - cols.getBoundingClientRect().bottom
+    + parseFloat(getComputedStyle(pane).paddingBottom);
+  const left = cols.firstElementChild?.offsetHeight || 0;
+  col.style.maxHeight = Math.max(left, 260, Math.floor(pane.clientHeight - colTop - below)) + 'px';
+}
+
+function setupSettingsColumn() {
+  fitSettingsColumn();
+  window.addEventListener('resize', fitSettingsColumn);
+  // The Reads column changes height as files are added or removed.
+  const reads = document.getElementById('settings-col')?.previousElementSibling;
+  if (reads && 'ResizeObserver' in window) new ResizeObserver(fitSettingsColumn).observe(reads);
+}
+
 // ── Read type ──
+//
+// Set automatically from the files (two files: paired; one file: single-end
+// or Nanopore by its read lengths) or from ENA metadata; the toggle is there
+// to correct it. The note under the toggle says where the setting came from.
+
+const READ_TYPE_HINT = 'Set automatically from the files you add. Change it here if needed.';
 
 function setupReadTypeToggle() {
   document.querySelectorAll('#read-type .seg-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#read-type .seg-btn').forEach(b => b.classList.toggle('active', b === btn));
-      state.readType = btn.dataset.type;
-      applyReadType();
-    });
+    btn.addEventListener('click', () => setReadType(btn.dataset.type, READ_TYPE_HINT));
   });
 }
 
 function applyReadType() {
-  const slotR2 = document.querySelector('[data-slot="r2"]');
-  const slotR1Title = document.querySelector('[data-slot="r1"] .slot-title');
-  if (state.readType === 'paired') {
-    slotR2.style.display = '';
-    slotR1Title.textContent = 'Forward reads (R1)';
-  } else {
-    slotR2.style.display = 'none';
-    state.files.r2 = null;
-    setSlotName('r2', 'No file');
-    slotR1Title.textContent = state.readType === 'nanopore' ? 'Nanopore reads' : 'Reads';
-  }
-  document.querySelectorAll('#read-type .seg-btn').forEach(b =>
-    b.setAttribute('aria-pressed', String(b.classList.contains('active'))));
+  if (state.readType !== 'paired') state.files.r2 = null;
+  document.querySelectorAll('#read-type .seg-btn').forEach(b => {
+    const on = b.dataset.type === state.readType;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  renderFiles();
   refreshFastpPanel();
   updateRunButton();
 }
 
-function setReadType(type) {
+function setReadType(type, note) {
   state.readType = type;
-  document.querySelectorAll('#read-type .seg-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.type === type);
-  });
+  const el = document.getElementById('read-type-note');
+  if (el && note) el.textContent = note;
   applyReadType();
 }
 
-// ── Uploads ──
+// ── Uploads: file dialog, drag and drop, pairing ──
+//
+// One picker for everything: select or drop one file or a pair. Buttons
+// marked data-pick="r2" fill that slot only (the "Add R2 file" row).
+
+let pickSlot = null;
 
 function setupUploadSlots() {
+  const input = document.getElementById('file-input');
+  if (!input) return;
   document.querySelectorAll('[data-pick]').forEach(btn => {
-    const slot = btn.dataset.pick;
-    const input = document.querySelector(`[data-input="${slot}"]`);
-    btn.addEventListener('click', () => input.click());
-    input.addEventListener('change', () => {
-      const f = input.files[0];
-      if (f) {
-        state.files[slot] = f;
-        setSlotName(slot, `${f.name} (${formatBytes(f.size)})`);
-        // The user's own file: forget the species and metadata of a previous
-        // example or ENA fetch so the CABBAGE card does not inherit them.
-        state.organism = null;
-        const meta = document.getElementById('run-meta');
-        if (meta) { meta.hidden = true; meta.textContent = ''; }
-      } else {
-        state.files[slot] = null;
-        setSlotName(slot, 'No file');
-      }
-      input.value = '';
-      updateRunButton();
+    btn.addEventListener('click', () => {
+      pickSlot = btn.dataset.pick || null;
+      input.click();
     });
+  });
+  input.addEventListener('change', () => {
+    if (input.files.length) assignFiles([...input.files], pickSlot);
+    input.value = '';
+  });
+  document.querySelectorAll('[data-clear]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (state.running) return;
+      state.files[btn.dataset.clear] = null;
+      showUploadNote('');
+      setReadType(state.readType, READ_TYPE_HINT);
+    });
+  });
+  document.getElementById('btn-swap')?.addEventListener('click', () => {
+    if (state.running) return;
+    const { r1, r2 } = state.files;
+    state.files.r1 = r2;
+    state.files.r2 = r1;
+    renderFiles();
+  });
+  setupDropZone();
+}
+
+// Files can be dropped anywhere on the input page (a drop elsewhere would
+// make the browser open the file and leave the app). A drop on the R2 row
+// goes to that slot; otherwise names decide.
+function setupDropZone() {
+  const grid = document.getElementById('upload-grid');
+  if (!grid) return;
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  const onForm = () => !state.running && !document.getElementById('workspace').classList.contains('show-results');
+  window.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    depth++;
+    if (onForm()) grid.classList.add('dragging');
+  });
+  window.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) grid.classList.remove('dragging');
+  });
+  window.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = onForm() ? 'copy' : 'none';
+  });
+  window.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    grid.classList.remove('dragging');
+    if (!onForm()) return;
+    const slot = e.target.closest?.('[data-slot]')?.dataset.slot;
+    assignFiles([...e.dataTransfer.files], slot);
   });
 }
 
-function setSlotName(slot, text) {
-  const el = document.querySelector(`[data-name="${slot}"]`);
-  if (el) el.textContent = text;
+// Read number from a FASTQ name: SRR1_1.fastq.gz, s_S1_L001_R2_001.fastq.gz,
+// x.R1.fq → 1 or 2; 0 when the name does not say.
+function readNumber(name) {
+  const m = String(name).match(/[_.\-\s]R?([12])(?:_\d{3})?\.(?:fastq|fq)(?:\.gz)?$/i);
+  return m ? Number(m[1]) : 0;
+}
+
+const FASTQ_NAME = /\.(fastq|fq)(\.gz)?$|\.gz$/i;
+
+// Put chosen or dropped files into the slots. Two files make a pair (the
+// read type switches to paired). A single file named as one half of a pair
+// joins or starts a pair; any other single file is single-end or Nanopore,
+// decided by its read lengths.
+function assignFiles(list, slotHint) {
+  if (state.running) return;
+  const files = list.filter(f => FASTQ_NAME.test(f.name));
+  const notes = [];
+  if (files.length < list.length) notes.push(`Skipped ${list.length - files.length} file${list.length - files.length === 1 ? '' : 's'} that ${list.length - files.length === 1 ? 'is' : 'are'} not FASTQ (.fastq, .fq or .gz).`);
+  if (!files.length) { showUploadNote(notes.join(' ')); return; }
+  if (files.length >= 2) {
+    let [a, b] = files;
+    const na = readNumber(a.name), nb = readNumber(b.name);
+    if (na === 2 || nb === 1) [a, b] = [b, a];
+    else if (!na && !nb && a.name.localeCompare(b.name) > 0) [a, b] = [b, a];
+    if (files.length > 2) notes.push(`Only two files can be used: ${a.name} and ${b.name}.`);
+    state.files.r1 = a;
+    state.files.r2 = b;
+    setReadType('paired', (na || nb)
+      ? 'Paired-end: R1 and R2 were matched by file name.'
+      : 'Paired-end: two files. Check that R1 and R2 are the right way round.');
+  } else {
+    const f = files[0];
+    const n = readNumber(f.name);
+    const pairing = state.readType === 'paired' && (slotHint || n || (state.files.r1 && !state.files.r2));
+    if (pairing) {
+      const slot = slotHint || (n === 2 ? 'r2' : n === 1 ? 'r1' : (state.files.r1 && !state.files.r2 ? 'r2' : 'r1'));
+      state.files[slot] = f;
+      renderFiles();
+    } else {
+      state.files.r1 = f;
+      state.files.r2 = null;
+      setReadType(state.readType === 'nanopore' ? 'nanopore' : 'single', 'Checking read lengths…');
+      detectLongReads(f);
+    }
+  }
+  showUploadNote(notes.join(' '));
+  // The user's own files: forget the species and metadata of a previous
+  // example or ENA fetch so the report does not inherit them.
+  forgetAutoSpecies();
+  const meta = document.getElementById('run-meta');
+  if (meta) { meta.hidden = true; meta.textContent = ''; }
+  updateRunButton();
+}
+
+// Single-end Illumina or Nanopore? Illumina reads are at most 300 bp, so
+// the median length of the first reads decides. Only the start of the file
+// is read (and decompressed); the user can still change the type.
+async function detectLongReads(file) {
+  let median = 0;
+  try {
+    median = await sniffMedianReadLength(file);
+  } catch (_) { /* unreadable start: leave the type as it is */ }
+  if (state.files.r1 !== file || state.readType === 'paired') return; // replaced meanwhile
+  if (!median) {
+    setReadType(state.readType, READ_TYPE_HINT);
+    return;
+  }
+  const len = median >= 1000 ? (median / 1000).toFixed(1) + ' kb' : median + ' bp';
+  if (median > 400) setReadType('nanopore', `Nanopore: the reads are long (median ${len}).`);
+  else setReadType('single', `Single-end: one file of short reads (median ${len}). Choose Nanopore if that is wrong.`);
+}
+
+async function sniffMedianReadLength(file) {
+  let bytes = new Uint8Array(await file.slice(0, 1 << 20).arrayBuffer());
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    const parts = [];
+    let size = 0;
+    const gz = new window.fflate.Gunzip((chunk) => { parts.push(chunk); size += chunk.length; });
+    try { gz.push(bytes, false); } catch (_) { /* a truncated block ends the sample early */ }
+    bytes = new Uint8Array(size);
+    let at = 0;
+    for (const p of parts) { bytes.set(p, at); at += p.length; }
+  }
+  const lines = new TextDecoder().decode(bytes).split('\n');
+  const partial = lines.pop(); // the last line is probably cut off
+  const lens = [];
+  for (let i = 1; i < lines.length && lens.length < 500; i += 4) {
+    if (lines[i - 1].startsWith('@')) lens.push(lines[i].trim().length);
+  }
+  // One Nanopore read can be longer than the whole sample.
+  if (!lens.length) return lines.length === 1 && lines[0].startsWith('@') ? partial.length : 0;
+  lens.sort((a, b) => a - b);
+  return lens[lens.length >> 1];
+}
+
+// Draw the drop zone: the prompt when empty, otherwise one row per file
+// (plus a row asking for R2 while a pair is incomplete).
+function renderFiles() {
+  const { r1, r2 } = state.files;
+  const paired = state.readType === 'paired';
+  const any = !!(r1 || (paired && r2));
+  const set = (sel, fn) => { const el = document.querySelector(sel); if (el) fn(el); };
+  set('#dz-empty', el => { el.hidden = any; });
+  set('#file-list', el => { el.hidden = !any; });
+  set('#file-actions', el => { el.hidden = !any; });
+  set('#btn-swap', el => { el.hidden = !(paired && r1 && r2); });
+  set('#upload-grid', el => el.classList.toggle('has-files', any));
+  for (const slot of ['r1', 'r2']) {
+    const file = state.files[slot];
+    set(`.file-row[data-slot="${slot}"]`, row => {
+      row.hidden = slot === 'r2' ? !paired : false;
+      row.classList.toggle('missing', !file);
+    });
+    set(`[data-name="${slot}"]`, el => {
+      el.textContent = file ? file.name : `No ${slot === 'r1' ? 'forward (R1)' : 'reverse (R2)'} file`;
+      el.title = file ? file.name : '';
+      el.dataset.size = file ? formatBytes(file.size) : '';
+    });
+    set(`[data-clear="${slot}"]`, el => { el.hidden = !file; });
+  }
+  for (const slot of ['r1', 'r2']) set(`[data-pick="${slot}"]`, el => { el.hidden = !!state.files[slot]; });
+  set('[data-tag="r1"]', el => { el.textContent = paired ? 'R1' : state.readType === 'nanopore' ? 'ONT' : 'SE'; });
+}
+
+function setFile(slot, file) {
+  state.files[slot] = file;
+  renderFiles();
+}
+
+function showUploadNote(text) {
+  const el = document.getElementById('upload-note');
+  if (!el) return;
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+// ── Species ──
+//
+// Optional. It adds CABBAGE tested-resistance rates to the report and can
+// also be set or changed on the results page. The list of species CABBAGE
+// covers loads in the background for the suggestions.
+
+function setupSpecies() {
+  const input = document.getElementById('species');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    state.species = input.value.trim();
+    state.speciesAuto = false;
+  });
+  input.addEventListener('change', () => current?.report?.setSpecies(state.species));
+  loadAssociations()
+    .then((assoc) => {
+      const list = document.getElementById('species-list');
+      if (list) list.innerHTML = assoc.species.map(s => `<option value="${esc(s)}"></option>`).join('');
+    })
+    .catch((err) => term.push('CABBAGE species list unavailable: ' + err.message, 'warn'));
+}
+
+function setSpecies(text, auto) {
+  state.species = text || '';
+  state.speciesAuto = !!(auto && text);
+  const input = document.getElementById('species');
+  if (input) input.value = state.species;
+}
+
+function forgetAutoSpecies() {
+  if (state.speciesAuto) setSpecies('', false);
+}
+
+// ENA names ("Staphylococcus aureus subsp. aureus USA300_TCH1516") are
+// shortened to the CABBAGE species when one matches.
+async function speciesFromOrganism(organism) {
+  if (!organism || /^unknown/i.test(organism)) return '';
+  try {
+    const assoc = await loadAssociations();
+    return resolveSpecies(assoc.species, organism) || organism;
+  } catch (_) {
+    return organism;
+  }
 }
 
 // ── Sliders ──
@@ -304,7 +574,7 @@ function updateRunButton() {
       hint.textContent = 'Select at least one database to run the analysis.';
     } else if (!haveR1) {
       hint.hidden = false;
-      hint.textContent = 'Load reads to begin: choose files, fetch a public run, or load the example.';
+      hint.textContent = 'Load reads to begin: choose or drop files, fetch a public run, or try the example.';
     } else {
       hint.hidden = false;
       hint.textContent = 'Add the reverse reads (R2) file to run paired-end analysis.';
@@ -321,6 +591,7 @@ function updateRunButton() {
 const EXAMPLE = {
   accession: 'SRR10341524',
   organism: 'S. aureus USA300_TCH1516',
+  species: 'Staphylococcus aureus',
   study: 'PRJNA579343',
   note: '48 MB MiSeq run, downloaded from ENA and cached in your browser',
   files: [
@@ -341,8 +612,7 @@ async function loadExample() {
   btn.disabled = true;
   const original = btn.textContent;
   try {
-    setReadType('paired');
-    state.organism = 'Staphylococcus aureus';
+    setReadType('paired', 'Paired-end: the example is an Illumina MiSeq run.');
     term.push(`Example isolate: ${EXAMPLE.organism} · ENA/SRA ${EXAMPLE.accession}`, 'info');
     term.push(EXAMPLE.note, 'info');
     term.push('USA300_TCH1516: community-associated MRSA reference strain (ST8), PVL-positive.', 'info');
@@ -365,9 +635,10 @@ async function loadExample() {
         }
       }
       const file = new File([data], spec.name, { type: 'application/gzip' });
-      state.files[spec.slot] = file;
-      setSlotName(spec.slot, `${file.name} (${formatBytes(file.size)})`);
+      setFile(spec.slot, file);
     }
+    setSpecies(EXAMPLE.species, true);
+    showUploadNote('');
     updateRunButton();
     term.push('Ready. Choose ResFinder (mecA, blaZ, aph(3\')-III…) or VFDB (PVL, hla, ica…) and run.', 'ok');
   } catch (err) {
@@ -380,12 +651,12 @@ async function loadExample() {
   }
 }
 
-// ── Database multi-select dropdown ──
+// ── Databases ──
 //
-// Selection drives downloading: ResFinder (the default) is fetched as soon
-// as the page is ready, other indexes download the first time they're
-// selected, and everything stays in the IndexedDB cache. Selected databases
-// show a tick in the menu and appear as chips on the trigger button.
+// Three checkboxes. Selection drives downloading: ResFinder (the default) is
+// fetched as soon as the page is ready, other indexes download the first
+// time they're selected, and everything stays in the IndexedDB cache. Each
+// row shows the index size, its download progress, or that it is cached.
 
 const DB_META = {
   resfinder: { short: 'ResFinder', size: '12 MB' },
@@ -396,30 +667,11 @@ const DB_META = {
 const DB_DOWNLOADS = new Map(); // db key → { pct, promise } while in flight
 
 function setupDbSelect() {
-  const btn = document.getElementById('db-select-btn');
-  const menu = document.getElementById('db-menu');
-  const wrap = document.getElementById('db-select');
-  if (!btn || !menu) return;
-  const setOpen = (open) => {
-    menu.hidden = !open;
-    btn.setAttribute('aria-expanded', String(open));
-  };
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setOpen(menu.hidden);
-  });
-  document.addEventListener('click', (e) => {
-    if (!menu.hidden && !wrap.contains(e.target)) setOpen(false);
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !menu.hidden) setOpen(false);
-  });
-  document.querySelectorAll('.db-option').forEach((row) => {
-    const pick = () => toggleDb(row.dataset.db);
-    row.addEventListener('click', pick);
-    row.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
-    });
+  const boxes = document.querySelectorAll('#db-list input[type="checkbox"]');
+  if (!boxes.length) return;
+  boxes.forEach((cb) => {
+    cb.checked = state.selectedDbs.has(cb.value);
+    cb.addEventListener('change', () => toggleDb(cb.value, cb.checked));
   });
 
   renderDbUi();
@@ -434,12 +686,12 @@ function setupDbSelect() {
   downloadDb('resfinder');
 }
 
-function toggleDb(key) {
-  if (state.selectedDbs.has(key)) {
-    state.selectedDbs.delete(key);
-  } else {
+function toggleDb(key, on) {
+  if (on) {
     state.selectedDbs.add(key);
     downloadDb(key); // no-op when already cached or in flight
+  } else {
+    state.selectedDbs.delete(key);
   }
   renderDbUi();
   updateRunButton();
@@ -478,52 +730,22 @@ function downloadDb(key) {
   renderDbUi();
 }
 
-const dlStatus = (dl) => dl.pct != null ? `↓ ${dl.pct}%` : dl.file != null ? `↓ ${dl.file}` : '…';
+const dlStatus = (dl) => dl.pct != null ? `↓ ${dl.pct}%` : dl.file != null ? `↓ ${dl.file}` : '↓ …';
 
-// Repaint chips (button) and ticks/progress (menu rows) from state.
+// Repaint each database row's size / progress / cached state.
 function renderDbUi() {
-  const chips = document.getElementById('db-chips');
-  if (!chips) return;
-  chips.innerHTML = '';
-  for (const db of COMPREHENSIVE_DBS) {
-    if (!state.selectedDbs.has(db.key)) continue;
-    const meta = DB_META[db.key];
-    const dl = DB_DOWNLOADS.get(db.key);
-    const chip = document.createElement('span');
-    chip.className = 'db-chip' + (dl ? ' loading' : '');
-    const name = document.createElement('span');
-    name.textContent = meta.short;
-    chip.appendChild(name);
-    if (dl) {
-      const stat = document.createElement('span');
-      stat.className = 'db-chip-stat';
-      stat.textContent = dlStatus(dl);
-      chip.appendChild(stat);
-    }
-    chips.appendChild(chip);
-  }
-  if (!chips.children.length) {
-    const empty = document.createElement('span');
-    empty.className = 'db-chip-empty';
-    empty.textContent = 'No databases selected';
-    chips.appendChild(empty);
-  }
-  document.querySelectorAll('.db-option').forEach((row) => {
+  document.querySelectorAll('#db-list .db-check').forEach((row) => {
     const key = row.dataset.db;
-    const selected = state.selectedDbs.has(key);
-    row.classList.toggle('selected', selected);
-    row.setAttribute('aria-selected', String(selected));
-    const sizeEl = row.querySelector('.db-opt-size');
     const dl = DB_DOWNLOADS.get(key);
-    const bar = row.querySelector('.db-opt-prog > i');
+    const sizeEl = row.querySelector('.db-size');
+    const bar = row.querySelector('.db-prog > i');
+    row.classList.toggle('downloading', !!dl);
     if (dl) {
-      row.classList.add('downloading');
       if (sizeEl) sizeEl.textContent = dlStatus(dl);
       if (bar) bar.style.width = (dl.pct || 3) + '%';
     } else {
-      row.classList.remove('downloading');
+      if (sizeEl) sizeEl.textContent = DB_META[key].size + (state.dbCached.has(key) ? ' · cached' : '');
       if (bar) bar.style.width = '0';
-      if (sizeEl) sizeEl.textContent = DB_META[key].size;
     }
   });
 }
@@ -556,10 +778,11 @@ async function clearCachedData() {
 // ── Fetch a public run from ENA ──
 //
 // Any SRR/ERR/DRR run accession. ENA is queried first for run metadata
-// (organism, platform, layout, file sizes); the read type is set from that
-// metadata and the run is described to the user before the FASTQs download.
-// Files are capped at 1 GB each (see fetch-run.js). Downloaded runs are
-// cached in IndexedDB, so fetching the same run again is instant.
+// (organism, platform, layout, file sizes); the read type and species are
+// set from that metadata and the run is described to the user before the
+// FASTQs download. Files are capped at 1 GB each (see fetch-run.js).
+// Downloaded runs are cached in IndexedDB, so fetching the same run again
+// is instant.
 
 const PLATFORM_LABELS = {
   ILLUMINA: 'Illumina',
@@ -587,7 +810,6 @@ async function doFetchRun() {
   try {
     term.push(`Looking up run ${acc} at ENA…`, 'info');
     const run = await lookupRun(acc);
-    state.organism = run.organism || null;
     const platform = PLATFORM_LABELS[run.platform] || run.platform || 'unknown platform';
     const kind = run.readType === 'nanopore'
       ? platform
@@ -596,7 +818,9 @@ async function doFetchRun() {
     metaEl.innerHTML = `<b>${esc(run.organism)}</b> · ${esc([kind, run.instrument].filter(Boolean).join(', '))} · ${formatBytes(run.totalBytes)}`;
     term.push(`Detected: ${[run.organism, kind, run.instrument].filter(Boolean).join(' · ')} (${formatBytes(run.totalBytes)})`, 'ok');
 
-    setReadType(run.readType);
+    setReadType(run.readType, `${kind[0].toUpperCase() + kind.slice(1)}, from the ENA run record.`);
+    setSpecies(await speciesFromOrganism(run.organism), true);
+    showUploadNote('');
     term.push(`Downloading ${run.files.length} FASTQ file${run.files.length === 1 ? '' : 's'} from ENA…`, 'info');
     for (let i = 0; i < run.files.length; i++) {
       const spec = run.files[i];
@@ -615,9 +839,7 @@ async function doFetchRun() {
           term.push('Could not cache this file in the browser; fetching it again will download it again.', 'warn');
         }
       }
-      const file = new File([data], spec.name, { type: 'application/gzip' });
-      state.files[slot] = file;
-      setSlotName(slot, `${file.name} (${formatBytes(file.size)})`);
+      setFile(slot, new File([data], spec.name, { type: 'application/gzip' }));
     }
     updateRunButton();
     term.push('Files ready. Start the analysis.', 'ok');
@@ -668,12 +890,14 @@ async function doRun() {
     const result = await runComprehensive(files, state.readType, {
       onStep, runQc, dbKeys: selectedDbs(), thresholds, fastpOptions,
     });
-    if (statusText) statusText.textContent = 'Analyzing… this may take a moment.';
-    renderComprehensive(result, { runQc });
+    renderComprehensive(result, {
+      runQc, thresholds, readType: state.readType, inputNames: files.map(f => f.name),
+    });
     document.getElementById('workspace').classList.add('show-results');
     window.scrollTo(0, 0); // stacked (phone) layout: results start at the top
   } catch (err) {
     term.push('Error: ' + err.message, 'error');
+    expandLogs();
   } finally {
     state.running = false;
     setRunning(false);
@@ -681,86 +905,77 @@ async function doRun() {
   }
 }
 
-const DB_SHORT = { resfinder: 'ResFinder', card_homolog: 'CARD', vfdb_core: 'VFDB' };
+// Sample name from the input files (the analysis itself may have run on
+// fastp's filtered_1/2 files): SRR1_1.fastq.gz → SRR1.
+function sampleNameOf(names) {
+  const n = names[0] || 'sample';
+  const m = n.match(/[_.](?:R?[12])(?:_\d{3})?(?=\.(?:fastq|fq)(?:\.gz)?$)/i);
+  return (m ? n.slice(0, m.index) : n.replace(/\.(fastq|fq)(\.gz)?$/i, '')) || n;
+}
 
-function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
+// Results page: the report first, then one collapsible gene table per
+// database and the fastp card. The toolbar prints the page or downloads the
+// raw output as a ZIP.
+function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc, thresholds, readType, inputNames }) {
   const area = document.getElementById('results');
   const metrics = summariseQc(qc);
   const verdict = qcVerdict(metrics);
+  const sampleName = sampleNameOf(inputNames);
 
-  const anyOk = results.some(r => r.exitCode === 0);
-  const parts = [];
-  if (runQc) parts.push('fastp QC');
-  results.forEach(r => parts.push(DB_SHORT[r.database] || r.dbLabel || r.database));
-  let html = `
-    <div class="result-header ${anyOk ? 'ok' : 'error'}">
-      <strong>${anyOk ? 'Analysis complete' : 'Analysis failed'}</strong>
-      <span class="result-meta">${parts.join(' + ')}</span>
-    </div>`;
+  let html = '<div id="report"></div><div class="evidence">';
 
-  // ── Downloads first: one zip with everything (except the clean reads,
-  //    which can be hundreds of MB — those live on the QC card) ──
-  html += `
-    <div class="downloads">
-      <button class="btn btn-primary" data-zip>Download all results (ZIP)</button>
-      <p class="dl-nudge">The ZIP contains the result tables, the fastp JSON and HTML reports, the CABBAGE table and the run log. Clean reads are downloaded separately from the Quality control card.</p>
-    </div>`;
+  // ── One gene table per database ──
+  results.forEach((r, i) => {
+    const ok = r.exitCode === 0;
+    const rows = ok && r.resTable ? parseResFile(r.resTable).rows : [];
+    const name = DB_NAMES[r.database] || r.dbLabel || r.database;
+    const meta = !ok ? 'failed' : `${rows.length} gene${rows.length === 1 ? '' : 's'}`;
+    html += `
+    <details class="ev comp-section" data-section="${i}"${ok ? '' : ' open'}>
+      <summary><span class="ev-name">Gene table · ${esc(name)}</span><span class="ev-meta${ok ? '' : ' ev-failed'}">${meta}</span></summary>
+      <div class="ev-body">
+        ${!ok ? '<p class="empty">This step failed. Open the Logs panel below for details.</p>'
+          : rows.length ? renderResTable(rows, r.database)
+          : '<p class="empty">No genes detected.</p>'}
+      </div>
+    </details>`;
+  });
 
-  // ── QC card (only when fastp was part of the run) ──
+  // ── fastp card (only when fastp was part of the run) ──
   if (runQc) {
     const pairedReads = (qcReads || []).length > 1;
     const readBtns = (qcReads || [])
-      .map((f, i) => `<button class="qc-dl-btn" data-qc-dl="read-${i}">${pairedReads ? `Clean R${i + 1}` : 'Clean reads'} ↓ ${formatBytes(f.size)}</button>`)
+      .map((f, i) => `<button class="qc-dl-btn" type="button" data-qc-dl="read-${i}">${pairedReads ? `Clean R${i + 1}` : 'Clean reads'} ↓ ${formatBytes(f.size)}</button>`)
       .join('');
     html += `
-      <section class="card">
-        <div class="card-title comp-title"><span>Quality control</span><span class="comp-src">fastp</span></div>
-        <div class="card-body">
-          ${metrics ? `
-          <div class="qc-grid">
-            <div class="qc-cell"><span class="qc-val">${fmtCount(metrics.rawReads)}</span><span class="qc-key">reads in</span></div>
-            <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.retained)}</span><span class="qc-key">retained after trimming</span></div>
-            <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.q30After ?? 0)}</span><span class="qc-key">Q30 (after)</span></div>
-            <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.gcBefore ?? 0)}</span><span class="qc-key">GC content</span></div>
-            ${metrics.duplication != null ? `<div class="qc-cell"><span class="qc-val">${fmtPct(metrics.duplication)}</span><span class="qc-key">duplication</span></div>` : ''}
-          </div>
-          <p class="qc-verdict qc-${verdict.tone}">${esc(verdict.text)}</p>` : `
-          <p class="qc-verdict qc-warn">${esc(verdict.text)}</p>`}
-          ${(qc || qcHtml) ? `
-          <div class="qc-dl">
-            <span class="qc-dl-label">fastp output</span>
-            ${qcHtml ? '<button class="qc-dl-btn" data-qc-dl="view">View HTML report ↗</button><button class="qc-dl-btn" data-qc-dl="html">report.html ↓</button>' : ''}
-            ${qc ? '<button class="qc-dl-btn" data-qc-dl="json">report.json ↓</button>' : ''}
-            ${readBtns}
-          </div>
-          <p class="opt-note">Clean reads are the trimmed FASTQs the databases were run against, covering the whole sample. report.json records the exact fastp command and every filtering statistic.</p>` : ''}
+    <details class="ev ev-qc">
+      <summary><span class="ev-name">Quality control · fastp</span><span class="ev-meta qc-${esc(verdict.tone)}">${metrics ? `${fmtPct(metrics.retained)} of reads kept` : 'did not run'}</span></summary>
+      <div class="ev-body">
+        ${metrics ? `
+        <div class="qc-grid">
+          <div class="qc-cell"><span class="qc-val">${fmtCount(metrics.rawReads)}</span><span class="qc-key">reads in</span></div>
+          <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.retained)}</span><span class="qc-key">retained after trimming</span></div>
+          <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.q30After ?? 0)}</span><span class="qc-key">Q30 (after)</span></div>
+          <div class="qc-cell"><span class="qc-val">${fmtPct(metrics.gcBefore ?? 0)}</span><span class="qc-key">GC content</span></div>
+          ${metrics.duplication != null ? `<div class="qc-cell"><span class="qc-val">${fmtPct(metrics.duplication)}</span><span class="qc-key">duplication</span></div>` : ''}
         </div>
-      </section>`;
-  }
-
-  // ── One section per database ──
-  results.forEach((r, i) => {
-    const db = COMPREHENSIVE_DBS.find(d => d.key === r.database) || { label: r.dbLabel };
-    const ok = r.exitCode === 0;
-    const rows = ok && r.resTable ? parseResFile(r.resTable).rows : [];
-    const countMeta = rows.length ? ` · ${rows.length} gene${rows.length === 1 ? '' : 's'} detected` : '';
-    html += `
-    <div class="comp-section" data-section="${i}">
-      <div class="result-header ${ok ? 'ok' : 'error'}">
-        <strong>${esc(db.label)}</strong>
-        <span class="result-meta">${esc(r.dbLabel || '')}${countMeta}</span>
+        <p class="qc-verdict qc-${verdict.tone}">${esc(verdict.text)}</p>` : `
+        <p class="qc-verdict qc-warn">${esc(verdict.text)}</p>`}
+        ${(qc || qcHtml) ? `
+        <div class="qc-dl">
+          <span class="qc-dl-label">fastp output</span>
+          ${qcHtml ? '<button class="qc-dl-btn" type="button" data-qc-dl="view">View HTML report ↗</button><button class="qc-dl-btn" type="button" data-qc-dl="html">report.html ↓</button>' : ''}
+          ${qc ? '<button class="qc-dl-btn" type="button" data-qc-dl="json">report.json ↓</button>' : ''}
+          ${readBtns}
+        </div>
+        <p class="opt-note">Clean reads are the trimmed FASTQs the databases were run against, covering the whole sample. report.json records the exact fastp command and every filtering statistic.</p>` : ''}
       </div>
-      ${ok && r.resTable ? renderResTable(r.resTable)
-        : ok ? '<p class="empty">No resistance or virulence genes detected.</p>'
-        : '<p class="empty">This step failed. Open the Logs panel below for details.</p>'}
-    </div>`;
-  });
+    </details>`;
+  }
+  html += '</div>';
 
-  // ── Phenotype prediction (CABBAGE) mounts here ──
-  html += '<div id="cabbage-report"></div>';
-
-  // ── Downloads: everything in one zip (reports are small; the clean
-  //    reads stay out of it and are served from the QC card) ──
+  // ── ZIP contents: raw output (the clean reads, which can be hundreds of
+  //    MB, stay out; they download from the fastp card) ──
   const dlFiles = {};
   if (qc) {
     dlFiles['fastp_report.json'] = { data: new TextEncoder().encode(JSON.stringify(qc, null, 2)), binary: true };
@@ -776,6 +991,7 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
   dlFiles['openpathogen_run.log'] = { data: term.text(), binary: false };
 
   area.innerHTML = html;
+  current = { dlFiles, sampleName, report: null };
 
   // Per-artifact fastp downloads on the QC card. The HTML report is
   // self-contained (inline CSS/JS + data), so it can be viewed in a new
@@ -801,21 +1017,24 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
     });
   }
 
-  // ── Phenotype prediction card (CABBAGE) ──
-  // Mounts after the tables, auto-loads the small association table, and
-  // contributes cabbage_predictions.csv to the ZIP when ready.
-  const cabbageArea = area.querySelector('#cabbage-report');
-  if (cabbageArea) {
-    const detected = collectDetectedGenes(results, parseResFile);
-    mountCabbageReport(cabbageArea, {
-      organism: state.organism,
-      detectedGenes: detected,
-      log: (msg, level) => term.push(msg, level),
-      onCsv: (name, text) => {
-        dlFiles[name] = { data: new TextEncoder().encode(text), binary: true };
-      },
-    });
-  }
+  // ── The report ──
+  const openHit = (section, template) => {
+    const r = results[section];
+    const row = r?.resTable ? parseResFile(r.resTable).rows.find(x => x.Template === template) : null;
+    if (row) openGeneViewer(row, r);
+  };
+  current.report = mountReport(area.querySelector('#report'), {
+    results, readType, inputNames, sampleName, thresholds,
+    qc: runQc ? { tone: verdict.tone, text: verdict.text } : null,
+    species: state.species,
+    onSpeciesChange: (text) => setSpecies(text, false),
+    onCsv: (name, text) => {
+      if (text == null) delete dlFiles[name];
+      else dlFiles[name] = { data: new TextEncoder().encode(text), binary: true };
+    },
+    openHit,
+    log: (msg, level) => term.push(msg, level),
+  });
 
   // Table bindings, scoped to each database section.
   results.forEach((r, i) => {
@@ -846,20 +1065,39 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc } = {}) {
     moreRow.querySelector('button').addEventListener('click', reveal);
     section.querySelectorAll('th').forEach(th => th.addEventListener('click', reveal));
   });
+}
 
-  area.querySelector('[data-zip]')?.addEventListener('click', () => {
-    const enc = new TextEncoder();
-    const zip = {};
-    for (const [fname, info] of Object.entries(dlFiles)) {
-      zip[fname] = info.binary
-        ? (info.data instanceof Uint8Array ? info.data : new Uint8Array(info.data))
-        : enc.encode(info.data);
-    }
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([window.fflate.zipSync(zip)], { type: 'application/zip' }));
-    a.download = 'openpathogen_results.zip';
-    a.click();
-    URL.revokeObjectURL(a.href);
+function downloadZip() {
+  if (!current) return;
+  const enc = new TextEncoder();
+  const zip = {};
+  for (const [fname, info] of Object.entries(current.dlFiles)) {
+    zip[fname] = info.binary
+      ? (info.data instanceof Uint8Array ? info.data : new Uint8Array(info.data))
+      : enc.encode(info.data);
+  }
+  download(new Blob([window.fflate.zipSync(zip)], { type: 'application/zip' }), 'openpathogen_results.zip');
+}
+
+// Printing (the toolbar button or the browser's own Print) lays out the
+// results page as a report: collapsed sections open, every table row shows,
+// and the document title becomes the default PDF file name.
+function setupPrint() {
+  let restore = null;
+  window.addEventListener('beforeprint', () => {
+    if (!current || !document.getElementById('workspace').classList.contains('show-results')) return;
+    const closed = [...document.querySelectorAll('#results details:not([open])')];
+    closed.forEach(d => { d.open = true; });
+    const title = document.title;
+    document.title = `openpathogen report - ${current.sampleName}`;
+    restore = () => {
+      closed.forEach(d => { d.open = false; });
+      document.title = title;
+    };
+  });
+  window.addEventListener('afterprint', () => {
+    restore?.();
+    restore = null;
   });
 }
 
@@ -882,20 +1120,22 @@ function setRunning(on) {
     btn.innerHTML = '<span class="spinner"></span>Running…';
     status.hidden = false;
   } else {
-    btn.textContent = 'Analyze sample';
+    btn.textContent = 'Run';
     status.hidden = true;
   }
 }
 
-// ── Results ──
+// ── Gene tables ──
 
-// Open the per-gene detail viewer when a result row is clicked.
+// Open the per-gene viewer when a row is clicked, or when its gene button
+// is activated from the keyboard (the button's click bubbles to the row).
 function bindGeneViewer(area, result) {
   if (!result.resTable) return;
   const { rows } = parseResFile(result.resTable);
   const byTemplate = new Map(rows.map(r => [r.Template, r]));
   area.querySelectorAll('tr[data-template]').forEach(tr => {
-    tr.addEventListener('click', () => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a')) return; // links (CARD ARO) open on their own
       // Don't hijack a text selection drag.
       if (window.getSelection && String(window.getSelection()).length) return;
       const row = byTemplate.get(tr.dataset.template);
@@ -904,28 +1144,48 @@ function bindGeneViewer(area, result) {
   });
 }
 
-function renderResTable(tsv) {
-  const { headers, rows } = parseResFile(tsv);
-  if (!rows.length) return '<p class="empty">No resistance or virulence genes detected.</p>';
+const fmtNum = (v, digits, suffix) => {
+  const x = parseFloat(v);
+  return Number.isFinite(x) ? x.toFixed(digits) + suffix : '';
+};
 
-  const cols = ['Template', 'Template_Identity', 'Template_Coverage', 'Depth', 'p_value']
-    .filter(c => headers.includes(c));
-
-  const colWidths = { Template: 170, Template_Identity: 90, Template_Coverage: 90, Depth: 65, p_value: 75 };
-
+// Gene | what it does | identity | coverage | depth. The raw template name
+// is the gene button's tooltip and the gene viewer's subtitle.
+function renderResTable(rows, db) {
+  const cols = [
+    { key: 'gene', label: 'Gene', width: 150 },
+    { key: 'fn', label: db === 'vfdb_core' ? 'Virulence factor' : 'Drug class and antibiotics' },
+    { key: 'id', label: 'Identity', width: 96 },
+    { key: 'cov', label: 'Coverage', width: 104 },
+    { key: 'depth', label: 'Depth', width: 84 },
+  ];
   let html = '<div class="table-wrap"><table class="res-table"><colgroup>';
-  for (const c of cols) html += `<col style="width:${colWidths[c]}px">`;
+  for (const c of cols) html += c.width ? `<col style="width:${c.width}px">` : '<col>';
   html += '</colgroup><thead><tr>';
-  for (const c of cols) html += `<th data-key="${esc(c)}">${esc(c.replace(/_/g, ' '))}<span class="arr">↕</span></th>`;
+  for (const c of cols) {
+    html += `<th data-key="${c.key}" aria-sort="none"><button type="button" class="th-sort">${esc(c.label)}<span class="arr" aria-hidden="true">↕</span></button></th>`;
+  }
   html += '</tr></thead><tbody>';
 
   for (const row of rows) {
+    const hit = describeHit(row.Template, db, row);
+    let fn = esc(describeFunction(hit));
+    if (db === 'card_homolog') {
+      if (!fn) fn = '<span class="muted">No drug class in ResFinder</span>';
+      const url = cardAroUrl(hit.aro);
+      if (url) fn += ` · <a href="${url}" target="_blank" rel="noopener">ARO:${esc(hit.aro)}</a>`;
+    }
+    const cells = {
+      gene: [hit.name, `<button type="button" class="gv-link" title="${esc(row.Template)}">${esc(hit.name)}</button>`],
+      fn: [describeFunction(hit), fn],
+      id: [row.Template_Identity, fmtNum(row.Template_Identity, 1, '%')],
+      cov: [row.Template_Coverage, fmtNum(row.Template_Coverage, 1, '%')],
+      depth: [row.Depth, fmtNum(row.Depth, 1, '×')],
+    };
     html += `<tr data-template="${esc(row.Template || '')}">`;
     for (const c of cols) {
-      let v = row[c] || '';
-      if (/Identity|Coverage/.test(c) && parseFloat(v)) v = parseFloat(v).toFixed(1) + '%';
-      const inner = c === 'Template' ? `<span class="gv-link">${esc(v)}</span>` : esc(v);
-      html += `<td data-k="${esc(c)}" data-v="${esc(row[c] || '')}" title="${esc(row[c] || '')}">${inner}</td>`;
+      const [v, inner] = cells[c.key];
+      html += `<td data-k="${c.key}" data-v="${esc(v || '')}"${c.key === 'fn' ? ' class="fn"' : ''}>${inner}</td>`;
     }
     html += '</tr>';
   }
@@ -938,16 +1198,18 @@ function bindSort(area) {
   const tbody = table.querySelector('tbody');
   let sortKey = null, sortDir = 1;
   table.querySelectorAll('th').forEach(th => {
-    th.addEventListener('click', () => {
+    th.querySelector('.th-sort')?.addEventListener('click', () => {
       const key = th.dataset.key;
       sortDir = (sortKey === key) ? -sortDir : 1;
       sortKey = key;
       table.querySelectorAll('th').forEach(h => {
-        h.classList.toggle('sort', h === th);
+        const on = h === th;
+        h.classList.toggle('sort', on);
+        h.setAttribute('aria-sort', on ? (sortDir > 0 ? 'ascending' : 'descending') : 'none');
         const arr = h.querySelector('.arr');
-        if (arr) arr.textContent = (h === th) ? (sortDir > 0 ? '↑' : '↓') : '↕';
+        if (arr) arr.textContent = on ? (sortDir > 0 ? '↑' : '↓') : '↕';
       });
-      const rows = [...tbody.querySelectorAll('tr')];
+      const rows = [...tbody.querySelectorAll('tr[data-template]')];
       rows.sort((a, b) => {
         const av = a.querySelector(`td[data-k="${key}"]`)?.dataset.v || '';
         const bv = b.querySelector(`td[data-k="${key}"]`)?.dataset.v || '';
@@ -995,6 +1257,8 @@ function bindColumnResize(area) {
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
+    // A click on the handle must not sort the column.
+    handle.addEventListener('click', (e) => e.stopPropagation());
   });
 }
 
@@ -1003,7 +1267,7 @@ function download(blob, name) {
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
 function esc(s) {

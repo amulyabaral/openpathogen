@@ -10,7 +10,6 @@
   <script src="coi-serviceworker.min.js"></script>
   <title>openpathogen: in-browser AMR and virulence gene detection</title>
   <meta name="description" content="Detect antimicrobial resistance and virulence genes in FASTQ reads, entirely in your browser. Free and open source, no installation, no data upload.">
-  <meta name="author" content="Amulya Baral">
   <meta name="robots" content="index, follow, max-image-preview:large">
   <link rel="canonical" href="https://openpathogen.org/">
   <meta name="theme-color" content="#ffffff">
@@ -31,7 +30,7 @@
   <meta name="twitter:image:alt" content="openpathogen: browser-based AMR and virulence gene detection. Reads never leave your machine.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="favicon.png">
-  <link rel="stylesheet" href="css/style.css?v=66">
+  <link rel="stylesheet" href="css/style.css?v=72">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -46,13 +45,14 @@
     "browserRequirements": "Requires a modern browser with WebAssembly and SharedArrayBuffer support",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
     "isAccessibleForFree": true,
-    "description": "Open-source web application that detects antimicrobial resistance and virulence genes in sequencing reads in the browser, with no installation and no data upload, and looks the genes up in the CABBAGE genotype-phenotype database.",
+    "description": "Open-source web application that detects antimicrobial resistance and virulence genes in sequencing reads in the browser, with no installation and no data upload, and reports them by drug class with tested-resistance rates from the CABBAGE genotype-phenotype database.",
     "featureList": [
       "fastp quality control and adapter trimming",
       "KMA read alignment compiled to WebAssembly",
       "AMR gene detection with ResFinder and CARD",
       "Virulence gene detection with VFDB",
-      "CABBAGE phenotype associations and species antibiograms",
+      "Resistance report by drug class, printable as PDF",
+      "CABBAGE tested-resistance rates for detected genes",
       "Per-gene coverage, consensus, alignment and variant viewer",
       "Public runs fetched by ENA/SRA accession",
       "Downloadable ZIP with the full KMA output"
@@ -60,9 +60,8 @@
     "image": "https://openpathogen.org/og.png",
     "screenshot": "https://openpathogen.org/og.png",
     "datePublished": "2026-08-25",
-    "dateModified": "2026-09-18",
+    "dateModified": "2026-09-19",
     "inLanguage": "en",
-    "author": { "@type": "Person", "name": "Amulya Baral", "url": "https://amulya.no" },
     "license": "https://github.com/amulyabaral/openpathogen/blob/main/LICENSE",
     "softwareHelp": { "@type": "CreativeWork", "url": "https://openpathogen.org/about.html" },
     "keywords": "AMR detection, antimicrobial resistance genes, virulence genes, FASTQ, KMA, fastp, WebAssembly, bioinformatics, ResFinder, CARD, VFDB, CABBAGE, antibiotic resistance, pathogen profiling, genotype to phenotype",
@@ -92,7 +91,7 @@
       {
         "@type": "Question",
         "name": "What do the results contain?",
-        "acceptedAnswer": { "@type": "Answer", "text": "A table of detected genes per database with identity, coverage and depth. A viewer per gene with coverage plot, consensus sequence, alignment and variants. fastp quality reports. CABBAGE phenotype associations. A ZIP with the full KMA output." }
+        "acceptedAnswer": { "@type": "Answer", "text": "A report that groups the resistance genes by drug class and names the antibiotics they affect, lists the classes with no acquired gene, and summarises virulence factors. You can print it or save it as a PDF. Behind it: a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, and a ZIP with the full KMA output." }
       },
       {
         "@type": "Question",
@@ -134,54 +133,88 @@
 
     <section class="card" id="run" aria-label="Run an analysis">
       <div class="card-body">
+      <div class="form-cols">
+      <div class="form-col">
 
-      <div class="row">
-        <span class="label" id="read-type-label">Choose input type</span>
-        <div class="seg" id="read-type" role="group" aria-labelledby="read-type-label">
-          <button class="seg-btn active" type="button" data-type="paired" aria-pressed="true">Illumina paired</button>
-          <button class="seg-btn" type="button" data-type="single" aria-pressed="false">Single-end</button>
-          <button class="seg-btn" type="button" data-type="nanopore" aria-pressed="false">Nanopore</button>
+      <h2 class="form-step"><span class="form-step-n">1</span>Reads</h2>
+
+      <div class="dropzone" id="upload-grid">
+        <div class="dz-empty" id="dz-empty">
+          <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 006.5 20h11a1.5 1.5 0 001.5-1.5V14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div class="dz-text">
+            <p class="dz-title">Drop FASTQ files here or <button class="dz-pick" type="button" data-pick>choose files</button></p>
+            <p class="opt-note">FASTQ, plain or gzipped. For paired-end reads, select R1 and R2 together.</p>
+          </div>
         </div>
+        <ul class="file-list" id="file-list" hidden>
+          <li class="file-row" data-slot="r1">
+            <span class="file-tag" data-tag="r1">R1</span>
+            <span class="file-name" data-name="r1"></span>
+            <button class="file-add" type="button" data-pick="r1">Add R1 file</button>
+            <button class="file-x" type="button" data-clear="r1" aria-label="Remove file" title="Remove">&times;</button>
+          </li>
+          <li class="file-row" data-slot="r2">
+            <span class="file-tag">R2</span>
+            <span class="file-name" data-name="r2"></span>
+            <button class="file-add" type="button" data-pick="r2">Add R2 file</button>
+            <button class="file-x" type="button" data-clear="r2" aria-label="Remove file" title="Remove">&times;</button>
+          </li>
+        </ul>
+        <div class="file-actions" id="file-actions" hidden>
+          <button class="link-btn" type="button" id="btn-swap">Swap R1 and R2</button>
+          <button class="link-btn" type="button" data-pick>Choose other files</button>
+        </div>
+        <input type="file" hidden multiple id="file-input" accept=".fastq,.fq,.gz,application/gzip,application/x-gzip">
       </div>
+      <p class="opt-note upload-note" id="upload-note" role="status" hidden></p>
 
-      <div class="upload-grid" id="upload-grid">
-        <div class="slot" data-slot="r1">
-          <div class="slot-title">Forward reads (R1)</div>
-          <div class="slot-body">
-            <button class="btn" type="button" data-pick="r1">Choose file</button>
-            <span class="slot-name" data-name="r1">No file</span>
+      <div class="row row-top">
+        <span class="label" id="read-type-label">Read type</span>
+        <div class="opt-group">
+          <div class="seg" id="read-type" role="group" aria-labelledby="read-type-label">
+            <button class="seg-btn active" type="button" data-type="paired" aria-pressed="true"><span class="seg-long">Illumina paired</span><span class="seg-short">Paired</span></button>
+            <button class="seg-btn" type="button" data-type="single" aria-pressed="false">Single-end</button>
+            <button class="seg-btn" type="button" data-type="nanopore" aria-pressed="false">Nanopore</button>
           </div>
-          <input type="file" hidden data-input="r1" accept=".fastq,.fq,.gz,application/gzip,application/x-gzip">
-        </div>
-        <div class="slot" data-slot="r2">
-          <div class="slot-title">Reverse reads (R2)</div>
-          <div class="slot-body">
-            <button class="btn" type="button" data-pick="r2">Choose file</button>
-            <span class="slot-name" data-name="r2">No file</span>
-          </div>
-          <input type="file" hidden data-input="r2" accept=".fastq,.fq,.gz,application/gzip,application/x-gzip">
+          <p class="opt-note" id="read-type-note">Set automatically from the files you add. Change it here if needed.</p>
         </div>
       </div>
 
       <div class="row fetch-row">
-        <label class="label" for="run-accession">Fetch public run</label>
+        <label class="label" for="run-accession">Or fetch a public run</label>
         <input type="text" id="run-accession" placeholder="Run accession (SRR…, ERR…, DRR…)" spellcheck="false" autocomplete="off" enterkeyhint="go">
         <button class="btn" id="btn-fetch-run" type="button" title="Fetch sequencing reads from a public run. ENA is queried for organism, platform and layout, and the read type is set automatically. Files are limited to 1 GB each.">Fetch reads</button>
-        <button class="btn" id="btn-example" type="button" title="Load the example isolate: S. aureus USA300_TCH1516 (SRR10341524), a 48 MB community-associated MRSA run downloaded from ENA and cached in your browser.">Load example (SRR10341524)</button>
+        <button class="btn" id="btn-example" type="button" title="Load the example isolate: S. aureus USA300_TCH1516 (SRR10341524), a 48 MB community-associated MRSA run downloaded from ENA and cached in your browser.">Try an example (MRSA)</button>
       </div>
       <div class="fetch-meta" id="run-meta" hidden></div>
+
+      </div>
+      <div class="form-col form-col-settings" id="settings-col">
+
+      <h2 class="form-step"><span class="form-step-n">2</span>Settings</h2>
+
+      <div class="row row-top">
+        <label class="label" for="species">Species</label>
+        <div class="opt-group species-group">
+          <input type="text" id="species" list="species-list" autocomplete="off" spellcheck="false" placeholder="For example E. coli">
+          <datalist id="species-list"></datalist>
+          <p class="opt-note">Optional. Adds CABBAGE tested-resistance rates to the report.</p>
+        </div>
+      </div>
 
       <div class="row row-top">
         <span class="label">Quality control</span>
         <div class="opt-group">
-          <label class="check-row">
-            <input type="checkbox" id="opt-fastp">
-            <span>Run fastp before alignment</span>
-          </label>
-          <p class="opt-note">Trims adapters and removes low-quality reads before alignment. Recommended.</p>
-          <button class="fastp-toggle" id="fastp-toggle" type="button" aria-expanded="false" aria-controls="fastp-config" hidden>
-            fastp settings <svg class="chev fastp-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+          <div class="fastp-head">
+            <label class="check-row">
+              <input type="checkbox" id="opt-fastp">
+              <span>Run fastp before alignment</span>
+            </label>
+            <button class="fastp-toggle is-off" id="fastp-toggle" type="button" aria-expanded="false" aria-controls="fastp-config">
+              fastp settings <svg class="chev fastp-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <p class="opt-note">Trims adapters and drops low-quality reads before alignment.</p>
 
           <div id="fastp-config" hidden>
             <div class="fastp-panel" id="fastp-panel">
@@ -236,37 +269,28 @@
         </div>
       </div>
 
-      <div class="row row-top">
+      <div class="row row-top db-row">
         <span class="label" id="db-label">Databases</span>
         <div class="opt-group db-group">
-          <div class="db-select" id="db-select">
-            <button class="db-select-btn" id="db-select-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="db-menu">
-              <span class="sr-only">Selected databases:</span>
-              <span class="db-chips" id="db-chips"></span>
-              <svg class="chev db-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <div class="db-menu" id="db-menu" role="listbox" aria-multiselectable="true" aria-label="Gene databases" hidden>
-              <div class="db-group-label">AMR gene databases</div>
-              <div class="db-option" data-db="resfinder" role="option" aria-selected="true" tabindex="0">
-                <span class="db-tick" aria-hidden="true">✓</span>
-                <span class="db-opt-name">ResFinder 2.6.0</span>
-                <span class="db-opt-size">12 MB</span>
-                <span class="db-opt-prog"><i></i></span>
-              </div>
-              <div class="db-option" data-db="card_homolog" role="option" aria-selected="false" tabindex="0">
-                <span class="db-tick" aria-hidden="true">✓</span>
-                <span class="db-opt-name">CARD 4.0.1</span>
-                <span class="db-opt-size">24 MB</span>
-                <span class="db-opt-prog"><i></i></span>
-              </div>
-              <div class="db-group-label">Virulence databases</div>
-              <div class="db-option" data-db="vfdb_core" role="option" aria-selected="false" tabindex="0">
-                <span class="db-tick" aria-hidden="true">✓</span>
-                <span class="db-opt-name">VFDB set A</span>
-                <span class="db-opt-size">78 MB</span>
-                <span class="db-opt-prog"><i></i></span>
-              </div>
-            </div>
+          <div class="db-list" id="db-list" role="group" aria-labelledby="db-label">
+            <label class="db-check" data-db="resfinder">
+              <input type="checkbox" value="resfinder" checked>
+              <span class="db-text"><span class="db-name">ResFinder 2.6.0</span><span class="db-desc">acquired resistance genes</span></span>
+              <span class="db-size">12 MB</span>
+              <span class="db-prog" aria-hidden="true"><i></i></span>
+            </label>
+            <label class="db-check" data-db="card_homolog">
+              <input type="checkbox" value="card_homolog">
+              <span class="db-text"><span class="db-name">CARD 4.0.1</span><span class="db-desc">resistance genes, including intrinsic and efflux genes</span></span>
+              <span class="db-size">24 MB</span>
+              <span class="db-prog" aria-hidden="true"><i></i></span>
+            </label>
+            <label class="db-check" data-db="vfdb_core">
+              <input type="checkbox" value="vfdb_core">
+              <span class="db-text"><span class="db-name">VFDB set A</span><span class="db-desc">virulence factors</span></span>
+              <span class="db-size">78 MB</span>
+              <span class="db-prog" aria-hidden="true"><i></i></span>
+            </label>
           </div>
           <button class="clear-cache-btn" id="btn-clear-cache" type="button" title="Delete everything openpathogen has stored in this browser (IndexedDB): database indexes, CABBAGE snapshots, and the example or any fetched public runs. Your own uploaded files are never stored, so there is nothing of those to clear.">Clear cached data</button>
         </div>
@@ -285,10 +309,13 @@
       </div>
       </div><!-- /kma-options -->
 
-      <div class="run-row">
-        <button class="btn btn-primary" id="btn-run" type="button" disabled>Analyze sample</button>
       </div>
-      <p class="opt-note" id="run-hint" hidden></p>
+      </div><!-- /form-cols -->
+
+      <div class="run-row">
+        <p class="opt-note" id="run-hint" hidden></p>
+        <button class="btn btn-primary" id="btn-run" type="button" disabled>Run</button>
+      </div>
 
       <div class="run-status" id="run-status" hidden>
         <div class="run-progress"><div class="run-progress-bar"></div></div>
@@ -310,8 +337,8 @@
           <p>ResFinder and CARD for acquired resistance genes, VFDB for virulence factors. Each index is downloaded once, checked against a pinned SHA-256 hash and cached in the browser.</p>
         </div>
         <div>
-          <h3>Phenotype context</h3>
-          <p>Resistance genes are looked up in CABBAGE, which links 170,000 sequenced isolates to their susceptibility test results. For each gene and antibiotic you see how often carriers of the gene tested resistant.</p>
+          <h3>Results by drug class</h3>
+          <p>Resistance genes are grouped by the drug classes and antibiotics they affect, from ResFinder's curated table. When the species is known, each gene also shows how often isolates of that species carrying it tested resistant in CABBAGE, a database of 170,000 sequenced and tested isolates.</p>
         </div>
       </div>
       <h2 id="faq-title">Frequently asked questions</h2>
@@ -321,12 +348,11 @@
         <dt>Which inputs are supported?</dt>
         <dd>Illumina paired-end, single-end and Oxford Nanopore reads in FASTQ, plain or gzipped. You can also fetch any public run by its SRA or ENA accession. Files up to 1 GB each are handled in memory.</dd>
         <dt>What do the results contain?</dt>
-        <dd>A table of detected genes per database with identity, coverage and depth. A viewer per gene with coverage plot, consensus sequence, alignment and variants. fastp quality reports. CABBAGE phenotype associations. A ZIP with the full KMA output.</dd>
+        <dd>A report that groups the resistance genes by drug class and names the antibiotics they affect, lists the classes with no acquired gene, and summarises virulence factors. You can print it or save it as a PDF. Behind it: a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, and a ZIP with the full KMA output.</dd>
         <dt>How do I cite openpathogen?</dt>
         <dd>A short communication is in preparation. Until then, cite <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a>, <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> and <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">CABBAGE</a>, and the databases you used.</dd>
       </dl>
       <footer class="site-footer">
-        <span>© 2026 <a href="https://amulya.no" target="_blank" rel="noopener">Amulya Baral</a></span>
         <a class="no-arrow" href="about.html">About and documentation</a>
         <a href="https://github.com/amulyabaral/openpathogen" target="_blank" rel="noopener">Source code (MIT)</a>
         <a href="https://zenodo.org/records/22102687" target="_blank" rel="noopener">Database indexes on Zenodo</a>
@@ -337,7 +363,11 @@
 
     <div class="pane pane-results">
       <div class="results-toolbar">
-        <button class="btn" id="btn-back" type="button">← Run another sample/database</button>
+        <button class="btn" id="btn-back" type="button">← Back to inputs</button>
+        <div class="results-actions">
+          <button class="btn btn-primary" id="btn-print" type="button">Print / save PDF</button>
+          <button class="btn" id="btn-zip" type="button" title="The KMA output files per database, the fastp reports, the CABBAGE rates as CSV and the run log.">Raw output (ZIP)</button>
+        </div>
       </div>
       <section id="results" class="results-block" aria-label="Results"></section>
     </div>
@@ -356,7 +386,7 @@
 </div>
 
 <script src="js/vendor/fflate.min.js"></script>
-  <script type="module" src="js/app.js?v=59"></script>
+  <script type="module" src="js/app.js?v=63"></script>
 
 </body>
 </html>

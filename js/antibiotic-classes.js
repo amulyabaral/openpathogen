@@ -1,15 +1,16 @@
 /* antibiotic-classes.js — drug class for every antibiotic name in the CABBAGE
  * snapshot, expressed in ResFinder's class vocabulary (the "Class" column of
- * resfinder_db/phenotypes.txt), so the phenotype card can tell a plausible
- * mechanism from a mere co-occurrence: mecA is a beta-lactam gene, so its
- * association with methicillin is mechanistic, while its association with
- * ciprofloxacin only reflects what else the same lineages carry.
+ * resfinder_db/phenotypes.txt). The report uses it to split the antibiotics
+ * of a gene with several classes (erm(C): macrolides, lincosamides,
+ * streptogramins) and to place each CABBAGE rate under the right class, and
+ * to tell a portal link that names a drug (mecA → methicillin) from one that
+ * names a class (blaZ → "beta-lactam antibiotic").
  *
  * Tokens are lower-case ResFinder class names. Combination products list the
  * class of every active component (an inhibitor combination is still a
  * beta-lactam). Drugs with no acquired-gene class in ResFinder (first-line
  * tuberculosis drugs, antifungals, lipopeptides…) carry their own class name,
- * which never matches a ResFinder gene, so they read as co-occurrence.
+ * which never matches a ResFinder gene.
  */
 
 const BL = 'beta-lactam';

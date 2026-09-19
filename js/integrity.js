@@ -1,5 +1,5 @@
 /* integrity.js — pinned SHA-256 checksums for every database/index file the
- * app can download (KMA indexes, CABBAGE snapshots, the CABBAGE manifest).
+ * app can download (KMA indexes, the CABBAGE association table and manifest).
  *
  * Downloads — whether same-origin or from Zenodo — are verified against these
  * pins before they are used or cached, so a compromised or wrongly-updated
@@ -26,12 +26,9 @@ const PINNED_SHA256 = {
   'databases/VFDB_setA_nt.fas.gz.length.b': 'bf2a39f5cf2c5bb5cc5130279c72ca3c4553e99c2ac4a46e6048aa61d68682c5',
   'databases/VFDB_setA_nt.fas.gz.name': '48d09fa30ca97adff28ede5cb5c0e4e31a7b0c217de5761141df62f1cdbf8317',
   'databases/VFDB_setA_nt.fas.gz.seq.b': 'd5b1567d6e59fbfdec0ae5613cb558a6206df6dbc13ae9eeba54eb8a42087520',
-  // CABBAGE snapshots + manifest
+  // CABBAGE association table + manifest
   'databases/cabbage/manifest.json': '7ee097cacfd9f269a5e856bc52252f3cbf0197620137c9d7b46e8a4e4549f390',
   'databases/cabbage/associations.json.gz': '7061c2b736b8a60a8e6aa595065cd7f1cc909ec0cef18c94277956bcefb76222',
-  'databases/cabbage/combined.cbg.gz': 'a29d44bb3dd1fa1aef81e0aa9cb1dd96fd49da755da5b5f6ec159616be403892',
-  'databases/cabbage/genotypes.cbg.gz': 'b47c242a9e3daa2141a27cc47f34281b1c5116ddb7b4a558fd006f087f598bb9',
-  'databases/cabbage/phenotypes.cbg.gz': 'e28b866d5c7dd584a5f17f8cd848ed0353728fabd95518acf38ab8eaac1c380a',
 };
 
 export function isPinned(path) {

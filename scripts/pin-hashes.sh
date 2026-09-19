@@ -24,12 +24,11 @@ INDEX_FILES=(
   databases/VFDB_setA_nt.fas.gz.name
   databases/VFDB_setA_nt.fas.gz.seq.b
 )
+# The app loads only the association table (and the manifest for its size
+# and release); the full genotype/phenotype views are build inputs.
 CABBAGE_FILES=(
   databases/cabbage/manifest.json
   databases/cabbage/associations.json.gz
-  databases/cabbage/combined.cbg.gz
-  databases/cabbage/genotypes.cbg.gz
-  databases/cabbage/phenotypes.cbg.gz
 )
 
 row() { printf "  '%s': '%s',\n" "$1" "$(shasum -a 256 "$1" | cut -d' ' -f1)"; }
@@ -38,7 +37,7 @@ table_file=$(mktemp)
 {
   echo "  // KMA indexes"
   for f in "${INDEX_FILES[@]}"; do row "$f"; done
-  echo "  // CABBAGE snapshots + manifest"
+  echo "  // CABBAGE association table + manifest"
   for f in "${CABBAGE_FILES[@]}"; do row "$f"; done
 } > "$table_file"
 

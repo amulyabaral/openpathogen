@@ -36,9 +36,9 @@ input:focus-visible,select:focus-visible{outline-offset:0}
 ::-webkit-scrollbar-thumb:hover{background:var(--ink)}
 
 /* The one treatment for every small uppercase label. */
-.card-title,.slot-title,.terminal-header,.res-table th,.gv-k,.gv-annot dt,.db-group-label,.fp-field,.qc-dl-label,.qc-key,.cabb-species-label,.cabb-verdict-pill,.cabb-ab-title,.cabb-group-title{font-size:var(--fs-xs);font-weight:500;text-transform:uppercase;letter-spacing:var(--track-caps)}
+.card-title,.terminal-header,.res-table th,.gv-k,.gv-annot dt,.fp-field,.qc-dl-label,.qc-key,.rep-sec-title,.report-facts dt{font-size:var(--fs-xs);font-weight:500;text-transform:uppercase;letter-spacing:var(--track-caps)}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-/* Disclosure chevron shared by the database menu, fastp expander and Logs bar. */
+/* Disclosure chevron shared by the fastp expander, the Logs bar and the results sections. */
 .chev{display:block;flex-shrink:0;width:14px;height:14px;transition:transform .2s}
 
 .topbar{display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:1px solid var(--border)}
@@ -66,7 +66,8 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .workspace.show-results{transform:translateX(-50%)}
 .pane{width:50%;height:100%;overflow-y:auto;padding:32px}
 .main-col > .terminal-card{flex-shrink:0;margin:0;border-left:none;border-right:none;border-bottom:none;border-top:1px solid var(--border);border-radius:0}
-.results-toolbar{display:flex;justify-content:flex-start;margin-bottom:14px}
+.results-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.results-actions{display:flex;flex-wrap:wrap;gap:8px}
 .hero{margin-bottom:24px}
 .hero-title{font-size:var(--fs-xl);font-weight:600;letter-spacing:-0.02em;margin-bottom:10px}
 .lede{font-size:var(--fs-md);color:var(--muted);margin:0}
@@ -81,18 +82,48 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .label{width:140px;font-weight:500;color:var(--ink);flex-shrink:0}
 
 .seg{display:inline-flex}
-.seg-btn{padding:7px 14px;border:1px solid var(--border);margin-left:-1px;border-radius:0;background:var(--bg);color:var(--ink);transition:background .2s,color .2s,border-color .2s}
+.seg-btn{padding:7px 14px;white-space:nowrap;border:1px solid var(--border);margin-left:-1px;border-radius:0;background:var(--bg);color:var(--ink);transition:background .2s,color .2s,border-color .2s}
 .seg-btn:first-child{margin-left:0;border-radius:var(--r) 0 0 var(--r)}
 .seg-btn:last-child{border-radius:0 var(--r) var(--r) 0}
 .seg-btn:hover:not(.active){border-color:var(--ink);position:relative;z-index:1}
 .seg-btn.active{background:var(--ink);color:var(--bg);border-color:var(--ink);position:relative;z-index:1;pointer-events:none}
 
-.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
-.slot{border:1px solid var(--border);border-radius:var(--r);padding:10px 12px}
-.slot-title{color:var(--ink);margin-bottom:7px}
-.slot-body{display:flex;align-items:center;gap:10px}
-.slot-name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.form-step{display:flex;align-items:center;gap:10px;font-size:var(--fs-md);font-weight:600;margin:4px 0 12px}
+.form-col + .form-col{margin-top:22px;padding-top:20px;border-top:1px solid var(--rule)}
+.form-step-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:var(--fs-sm);font-weight:600}
 
+.dropzone{border:1px dashed var(--muted);border-radius:var(--r);margin-bottom:10px;transition:background .15s,border-color .15s}
+.dropzone.has-files{border-style:solid;border-color:var(--border)}
+.dropzone.dragging{border:1px dashed var(--ink);background:var(--rule)}
+.dz-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:26px 20px;text-align:center}
+.dz-icon{width:28px;height:28px;color:var(--muted)}
+.dz-title{font-size:var(--fs-md);font-weight:500;margin:0}
+.dz-pick{padding:0;border:none;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.dz-pick:hover{text-decoration-thickness:2px}
+.dz-empty .opt-note{max-width:440px}
+.file-list{list-style:none;margin:0;padding:0}
+.file-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--rule)}
+.file-row[hidden]{display:none}
+.file-tag{flex-shrink:0;min-width:34px;text-align:center;font-size:var(--fs-xs);font-weight:600;letter-spacing:var(--track-caps);padding:2px 6px;border:1px solid var(--ink);border-radius:var(--r)}
+.file-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-name[data-size]:not([data-size=""])::after{content:"  " attr(data-size);white-space:pre;color:var(--muted);font-size:var(--fs-sm)}
+.file-row.missing .file-tag{border-style:dashed;color:var(--muted);border-color:var(--muted)}
+.file-row.missing .file-name{color:var(--muted)}
+.file-add{flex-shrink:0;font-size:var(--fs-sm);padding:4px 10px;border:1px solid var(--ink)}
+.file-add:hover{background:var(--ink);color:var(--bg)}
+.file-x{flex-shrink:0;width:28px;height:28px;font-size:var(--fs-lg);line-height:1;color:var(--muted)}
+.file-x:hover{color:var(--ink);background:var(--rule)}
+.file-actions{display:flex;flex-wrap:wrap;gap:6px 18px;padding:8px 12px}
+.link-btn{font-size:var(--fs-sm);color:var(--muted);border:none;padding:2px 0;text-decoration:underline;text-underline-offset:3px}
+.link-btn:hover{color:var(--ink)}
+.link-btn[hidden]{display:none}
+.upload-note{margin:0 0 10px;color:#9a6b00}
+.species-group{flex:1 1 240px;min-width:0}
+#species{width:min(100%,360px)}
+#read-type-note{margin-top:6px}
+.seg-short{display:none}
+
+#kma-options{max-width:780px}
 .slider-row input[type=range]{flex:1}
 .slider-val{width:52px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
 
@@ -102,7 +133,9 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .btn-primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .btn-primary:hover:not(:disabled){background:var(--bg);color:var(--ink)}
 
-.run-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule)}
+.run-row{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin:14px -20px 0;padding:14px 20px;border-top:1px solid var(--rule);position:sticky;bottom:0;z-index:2;background:var(--bg)}
+.run-row .btn-primary{min-width:120px;justify-content:center}
+#run-hint{text-align:right}
 .run-row .btn-primary{padding:9px 20px}
 .fetch-row .btn,.run-row .btn{flex-shrink:0}
 
@@ -132,36 +165,36 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .term-cmd{color:#79c0ff}
 .term-progress{color:#a5d6ff;font-style:italic}
 
-.result-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border:1px solid var(--border);border-radius:var(--r) var(--r) 0 0}
-.result-header.error{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.result-meta{font-size:var(--fs-sm);color:var(--muted)}
-.result-header.error .result-meta{color:var(--bg);opacity:.7}
-.empty{padding:24px;text-align:center;color:var(--muted);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--r) var(--r)}
+.empty{padding:24px;text-align:center;color:var(--muted)}
+.muted{color:var(--muted)}
 
 .table-wrap{overflow-x:auto;border:1px solid var(--border);border-top:none;border-radius:0 0 var(--r) var(--r)}
 .res-table{width:100%;border-collapse:collapse;font-size:var(--fs-sm);table-layout:fixed}
 .res-table th,.res-table td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--rule);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .res-table tr:last-child td{border-bottom:none}
-.res-table th{color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;position:relative}
-.res-table th:hover{color:var(--ink)}
-.res-table th .arr{display:inline-block;margin-left:4px;opacity:.4}
+.res-table th{color:var(--muted);border-bottom:1px solid var(--border);user-select:none;position:relative}
+.res-table td.fn{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.4}
+.th-sort{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:0;border:none;border-radius:0;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;cursor:pointer}
+.th-sort:hover{color:var(--ink)}
+.res-table th .arr{display:inline-block;opacity:.4}
 .res-table th.sort .arr{opacity:1;color:var(--ink)}
 .resize-handle{position:absolute;right:0;top:0;bottom:0;width:5px;cursor:col-resize;z-index:1}
 .resize-handle:hover,.resize-handle.active{background:var(--ink)}
 
-.downloads{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:14px 18px;border:1px solid var(--border);border-top:none;margin-bottom:16px}
-
 /* Clickable result rows → gene viewer */
 .res-table tbody tr[data-template]{cursor:pointer}
 .res-table tbody tr[data-template]:hover td{background:var(--rule)}
-.gv-link{text-decoration:underline;text-underline-offset:2px}
+.gv-link{display:block;max-width:100%;padding:0;border:none;border-radius:0;background:none;color:inherit;font:inherit;text-align:left;text-decoration:underline;text-underline-offset:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 
 /* Gene viewer modal */
 .gv-overlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.4);display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto}
 .gv-modal{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);width:100%;max-width:880px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;overflow:hidden}
 .gv-head,.gv-stats,.gv-annot,.gv-tabs{flex-shrink:0}
 .gv-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)}
-.gv-title{font-weight:500;word-break:break-all}
+.gv-heading{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gv-title{font-size:var(--fs-md);font-weight:600;word-break:break-all}
+.gv-sub{font-size:var(--fs-xs);color:var(--muted);word-break:break-all}
+.gv-template{font-family:var(--mono)}
 .gv-close{font-size:var(--fs-lg);line-height:1;width:30px;height:30px;color:var(--muted);border-radius:var(--r)}
 .gv-close:hover{color:var(--ink);background:var(--rule)}
 .gv-stats{display:flex;flex-wrap:wrap;gap:8px 20px;padding:12px 18px;border-bottom:1px solid var(--rule);font-size:var(--fs-sm)}
@@ -234,33 +267,21 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 /* ── Run options ── */
 .check-row{display:inline-flex;align-items:center;gap:10px;cursor:pointer;color:var(--ink)}
 .check-row input{accent-color:var(--ink);width:18px;height:18px;margin:0;flex-shrink:0;cursor:pointer}
-/* ── Databases: multi-select dropdown ──
-   The trigger button shows the selection as chips; the menu shows a tick
-   per selected database plus per-row download progress. */
+/* ── Databases: one checkbox row per index, with its size, download
+   progress or cached state ── */
 .db-group{flex:1 1 240px;min-width:0}
-.db-select{position:relative;width:clamp(280px,40vw,480px)}
-.db-select-btn{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:5px 8px 5px 10px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg);text-align:left}
-.db-select-btn:hover{border-color:var(--ink)}
-.db-chips{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-height:22px;align-items:center}
-.db-chip{display:inline-flex;align-items:center;gap:7px;font-size:var(--fs-sm);font-weight:500;border:1px solid var(--border);border-radius:11px;padding:2px 10px;color:var(--ink);background:var(--bg)}
-.db-chip.loading{color:var(--muted)}
-.db-chip-stat{font-size:var(--fs-xs);font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
-.db-chip-empty{color:var(--muted)}
-.db-caret{color:var(--muted)}
-.db-select-btn[aria-expanded="true"] .db-caret{transform:rotate(180deg)}
-.db-menu{position:absolute;z-index:60;top:calc(100% + 6px);left:0;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);box-shadow:0 10px 28px rgba(0,0,0,.14);padding:6px}
-.db-group-label{color:var(--muted);padding:8px 10px 3px}
-.db-group-label + .db-option{margin-top:2px}
-.db-option{display:grid;grid-template-columns:18px 1fr auto;gap:1px 10px;align-items:center;padding:8px 10px;border-radius:var(--r);cursor:pointer}
-.db-option:hover{background:var(--rule)}
-.db-tick{width:17px;height:17px;border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:var(--fs-xs);color:transparent;background:var(--bg)}
-.db-option.selected .db-tick{background:var(--ink);border-color:var(--ink);color:var(--bg)}
-.db-opt-name{font-weight:500}
-.db-opt-size{font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
-.db-option.downloading .db-opt-size{color:var(--ink)}
-.db-opt-prog{grid-column:1 / -1;height:3px;margin-top:4px;background:var(--rule);border-radius:2px;overflow:hidden;display:none}
-.db-option.downloading .db-opt-prog{display:block}
-.db-opt-prog > i{display:block;height:100%;width:0;background:var(--ink);transition:width .2s}
+.db-list{display:flex;flex-direction:column;gap:6px;width:min(100%,560px)}
+.db-check{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:0 12px;align-items:center;padding:9px 12px;border:1px solid var(--border);border-radius:var(--r);cursor:pointer}
+.db-check:hover,.db-check:has(input:checked){border-color:var(--ink)}
+.db-check input{accent-color:var(--ink);width:18px;height:18px;margin:0;cursor:pointer}
+.db-text{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px;min-width:0}
+.db-name{font-weight:500}
+.db-desc{font-size:var(--fs-sm);color:var(--muted)}
+.db-size{font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.db-check.downloading .db-size{color:var(--ink)}
+.db-prog{grid-column:1 / -1;height:3px;margin-top:7px;background:var(--rule);border-radius:2px;overflow:hidden;display:none}
+.db-check.downloading .db-prog{display:block}
+.db-prog > i{display:block;height:100%;width:0;background:var(--ink);transition:width .2s}
 .clear-cache-btn{align-self:flex-start;font-size:var(--fs-sm);color:var(--muted);border:none;padding:2px 0;margin-top:2px;text-decoration:underline;text-underline-offset:3px}
 .clear-cache-btn:hover{color:var(--ink)}
 .clear-cache-btn:disabled{opacity:.5;cursor:default}
@@ -270,7 +291,11 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 [hidden]{display:none!important}
 
 /* ── fastp settings panel (opened manually via the expander, never auto) ── */
-.fastp-toggle{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--muted);border:none;padding:2px 0;margin-top:2px}
+/* The toggle shares the checkbox's line and only fades in/out
+   (visibility, not display), so ticking fastp never shifts the layout. */
+.fastp-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.fastp-toggle{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;white-space:nowrap;font-size:var(--fs-sm);color:var(--muted);border:none;padding:2px 0}
+.fastp-toggle.is-off{visibility:hidden}
 .fastp-toggle:hover{color:var(--ink)}
 .fastp-toggle[aria-expanded="true"] .fastp-caret{transform:rotate(180deg)}
 .fastp-panel{display:flex;flex-direction:column;gap:10px;margin-top:8px;padding:14px 16px;border:1px solid var(--border);border-radius:var(--r)}
@@ -294,8 +319,6 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 .qc-dl-label{color:var(--muted);margin-right:4px}
 .qc-dl-btn{font-size:var(--fs-sm);color:var(--ink);background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:4px 10px;white-space:nowrap}
 .qc-dl-btn:hover{border-color:var(--ink)}
-.comp-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.comp-src{font-size:var(--fs-sm);font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0}
 .qc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:12px}
 .qc-cell{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r)}
 .qc-val{font-size:var(--fs-lg);font-weight:600;font-variant-numeric:tabular-nums;line-height:var(--lh-tight)}
@@ -303,12 +326,10 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 .qc-verdict{margin:4px 2px 0;color:var(--muted)}
 .qc-warn{color:#9a6b00}
 .qc-bad{color:#b3261e}
-.comp-section{margin-bottom:16px}
 .res-table tr.row-limited{display:none}
 .show-more-row td{text-align:center}
 .show-more-btn{font-size:var(--fs-sm);color:var(--muted);text-decoration:underline;text-underline-offset:2px;padding:4px 10px}
 .show-more-btn:hover{color:var(--ink)}
-.dl-nudge{margin:0;font-size:var(--fs-sm);color:var(--muted)}
 
 /* ── Fetch a public run from ENA ── */
 #run-accession{flex:1 1 160px;min-width:140px;max-width:280px}
@@ -316,63 +337,103 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 .fetch-meta{margin:10px 2px 0;font-size:var(--fs-sm);color:var(--muted)}
 .fetch-meta b{color:var(--ink);font-weight:600}
 
-/* ── CABBAGE results card (phenotype prediction) ── */
-.cabb-card .card-body{display:flex;flex-direction:column;gap:14px}
-.cabb-head-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.cabb-species-label{color:var(--muted)}
-#cabb-species{max-width:320px;padding:5px 10px}
-.cabb-isolates{font-size:var(--fs-sm);color:var(--muted);font-variant-numeric:tabular-nums}
-.cabb-preds{display:flex;flex-direction:column;gap:8px}
-.cabb-group-title{color:var(--muted);margin-top:6px}
-.cabb-group-note{font-size:var(--fs-sm);color:var(--muted);margin:-2px 0 4px}
-.cabb-pred{display:grid;grid-template-columns:150px minmax(130px,170px) minmax(160px,1fr) auto;gap:12px;align-items:center;padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r)}
-.cabb-pred.cabb-cooc{background:#fafafa}
-.cabb-verdict-pill{border-radius:10px;padding:2px 9px;justify-self:start;border:1px solid var(--border);white-space:nowrap}
-.cabb-verdict-resistant .cabb-verdict-pill{border-color:#b3261e;color:#b3261e;background:rgba(179,38,30,.06)}
-.cabb-verdict-uncertain .cabb-verdict-pill{border-color:#9a6b00;color:#9a6b00;background:rgba(154,107,0,.06)}
-.cabb-verdict-susceptible .cabb-verdict-pill{border-color:#1b6e3f;color:#1b6e3f;background:rgba(27,110,63,.06)}
-.cabb-ab-name{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cabb-bars{display:flex;flex-direction:column;gap:3px;min-width:0}
-.cabb-bar-row{display:grid;grid-template-columns:1fr minmax(48px,auto);gap:8px;align-items:center}
-.cabb-bar-track{height:9px;background:var(--rule);border-radius:var(--r);overflow:hidden;display:flex}
-.cabb-bar-fill{display:block;height:100%;background:var(--ink)}
-.cabb-bar-fill.i{background:#bbb}
-.cabb-bar-row.bg .cabb-bar-fill{background:#999}
-.cabb-bar-row.bg .cabb-bar-fill.i{background:#d0d0d0}
-.cabb-i{font-size:var(--fs-xs);color:var(--muted);margin-left:3px;white-space:nowrap}
-.cabb-bar-val{font-size:var(--fs-xs);text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
-.cabb-bar-row.bg .cabb-bar-val{color:var(--muted)}
-.cabb-genes{display:flex;flex-direction:column;gap:3px}
-.cabb-gene{font-size:var(--fs-sm);white-space:nowrap}
-.cabb-gene b{font-variant-numeric:tabular-nums}
-.cabb-ab-cell{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
-.cabb-ab-cell .cabb-ab-name{white-space:normal;overflow:visible}
-.cabb-tag{display:inline-block;font-size:var(--fs-xs);color:var(--muted);border:1px solid var(--rule);border-radius:10px;padding:0 7px;line-height:1.4;max-width:100%}
-.cabb-tag-match{color:var(--ink);border-color:var(--border)}
-.cabb-bg-note{font-size:var(--fs-xs);color:var(--muted);grid-column:1 / -1;padding-top:2px}
-.cabb-missing{font-size:var(--fs-sm);color:var(--muted)}
-.cabb-missing code{font-size:var(--fs-xs)}
-.cabb-ab-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px;border-top:1px solid var(--rule)}
-.cabb-ab-title{color:var(--muted)}
-.cabb-refine-btn{font-size:var(--fs-sm);color:var(--muted);text-decoration:underline;text-underline-offset:2px;padding:2px 0}
-.cabb-refine-btn:disabled{opacity:.5;cursor:wait}
-.cabb-filters{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 2px}
-.cabb-filters select{font-size:var(--fs-sm);padding:4px 8px;max-width:200px}
-.cabb-clear-filters{font-size:var(--fs-sm);color:var(--muted);text-decoration:underline;padding:4px 2px}
-.cabb-abtable{display:flex;flex-direction:column;gap:4px}
-.cabb-abrow{display:grid;grid-template-columns:minmax(120px,180px) 1fr 48px 70px;gap:10px;align-items:center;font-size:var(--fs-sm)}
-.cabb-abrow .cabb-ab-name{font-weight:400}
-.cabb-bar-n{font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
-.cabb-footnote{font-size:var(--fs-xs);color:var(--muted);border-top:1px solid var(--rule);padding-top:10px}
-.cabb-preds-more{font-size:var(--fs-sm);color:var(--muted);text-decoration:underline;text-underline-offset:2px;padding:4px 2px;align-self:flex-start}
-.cabb-preds .cabb-pred.row-limited{display:none}
+/* ── Results report ── */
+.report{border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px}
+.report-head{padding:18px 22px 16px;border-bottom:1px solid var(--border)}
+.report-title{font-size:var(--fs-lg);font-weight:600;letter-spacing:-0.01em;margin-bottom:12px;overflow-wrap:anywhere}
+.rep-alert{margin:-4px 0 12px;color:#b3261e;font-size:var(--fs-sm)}
+.report-facts{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:7px 18px;align-items:baseline;margin:0}
+.report-facts > div{display:contents}
+.report-facts dt{color:var(--muted)}
+.report-facts dd{margin:0;font-size:var(--fs-sm);overflow-wrap:anywhere}
+.rep-species-input{width:min(100%,300px);padding:3px 8px;font-size:var(--fs-sm)}
+.rep-species-status{margin-left:8px;color:var(--muted)}
+.report-body{padding:0 22px 18px}
+.rep-sec{padding:18px 0 4px}
+.rep-sec + .rep-sec{border-top:1px solid var(--rule)}
+.rep-sec-title{color:var(--muted);margin-bottom:10px}
+.rep-sec p{margin:0}
+.rep-class,.rep-vf-row{display:grid;grid-template-columns:180px minmax(0,1fr);gap:4px 20px;padding:12px 0;border-top:1px solid var(--rule)}
+.rep-class:first-child,.rep-vf-row:first-child{border-top:none;padding-top:2px}
+.rep-class-name,.rep-vf-cat{font-size:var(--fs-base);font-weight:600}
+.rep-genes{display:flex;flex-direction:column;gap:14px;min-width:0}
+.rep-gene{display:grid;grid-template-columns:minmax(120px,210px) minmax(0,1fr);gap:2px 16px}
+.rep-gene-id{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;min-width:0}
+.gene-btn{padding:0;border:none;border-radius:0;background:none;color:var(--ink);font:inherit;text-align:left;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;overflow-wrap:anywhere;cursor:pointer}
+.gene-btn:hover{opacity:.6}
+.rep-gene .gene-btn{font-weight:600}
+.rep-tag{font-size:var(--fs-xs);border:1px solid var(--border);border-radius:10px;padding:0 7px;line-height:1.5;white-space:nowrap}
+.rep-gene-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.rep-meta{font-size:var(--fs-sm);color:var(--muted);font-variant-numeric:tabular-nums}
+.rep-evidence{font-size:var(--fs-sm);margin-top:3px!important;padding-left:10px;border-left:2px solid var(--border)}
+.rep-note{font-size:var(--fs-sm);color:var(--muted);font-style:italic}
+.rep-empty{color:var(--muted)}
+.rep-none,.rep-other,.rep-vf-list{line-height:1.8}
+.rep-caveat{font-size:var(--fs-sm);color:var(--muted);margin-top:6px!important}
+.rep-cabbage-note{font-size:var(--fs-sm);color:var(--muted);margin-top:14px!important;padding-top:10px;border-top:1px dashed var(--border)}
+.rep-sep{color:var(--muted)}
+.rep-foot{display:flex;flex-direction:column;gap:4px;margin-top:18px;padding-top:12px;border-top:1px solid var(--rule);font-size:var(--fs-xs);color:var(--muted)}
+.rep-foot p{margin:0}
+.print-only{display:none}
+
+/* ── Evidence under the report: gene tables and fastp, collapsible ── */
+.evidence{display:flex;flex-direction:column;gap:10px}
+.ev{border:1px solid var(--border);border-radius:var(--r)}
+.ev > summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;cursor:pointer;list-style:none;user-select:none}
+.ev > summary::-webkit-details-marker{display:none}
+.ev > summary:hover .ev-name{text-decoration:underline;text-underline-offset:3px}
+.ev-name{display:inline-flex;align-items:center;gap:8px;font-weight:500}
+.ev-name::before{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .2s;flex-shrink:0}
+.ev[open] > summary .ev-name::before{transform:rotate(45deg)}
+.ev[open] > summary{border-bottom:1px solid var(--border)}
+.ev-meta{font-size:var(--fs-sm);color:var(--muted);white-space:nowrap}
+.ev-meta.ev-failed{color:#b3261e}
+.ev .table-wrap{border:none;border-radius:0 0 var(--r) var(--r)}
+.ev .res-table{min-width:600px}
+.ev-qc .ev-body{padding:16px 20px}
 
 /* ── Responsive ── */
+/* Wide windows: Reads and Settings side by side, labels above their
+   controls, so the whole form and the Run button fit without scrolling. */
+@media (min-width:960px){
+  .pane-config{padding:20px 32px}
+  .hero{margin-bottom:14px}
+  .hero-title{font-size:var(--fs-lg);margin-bottom:4px}
+  .lede{font-size:var(--fs-base)}
+  .form-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 36px}
+  .form-col + .form-col{margin-top:0;padding-top:0;border-top:none;border-left:1px solid var(--rule);padding-left:36px}
+  .form-col .row{flex-wrap:wrap;gap:6px 12px;padding:5px 0}
+  .form-col .row > .label{flex-basis:100%;width:auto;padding-top:0}
+  .form-col .opt-group{flex:1 1 100%;min-width:0}
+  .form-col .db-list,.form-col #species{width:100%}
+  .form-col .db-check{padding:7px 12px}
+  .form-col .db-text{flex-wrap:nowrap}
+  .form-col .db-name{flex-shrink:0;white-space:nowrap}
+  .form-col .db-desc{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .form-step{margin:0 0 8px}
+  .file-row{padding:6px 12px}
+  .file-actions{padding:6px 12px}
+  .fetch-meta{margin-top:4px}
+  .db-row{position:relative}
+  .form-col .clear-cache-btn{position:absolute;top:5px;right:0;margin:0}
+  .form-col #run-accession{flex:1 1 100%;max-width:none}
+  .dz-empty{flex-direction:row;justify-content:center;gap:14px;padding:18px 20px;text-align:left}
+  .dz-empty .dz-text{display:flex;flex-direction:column;gap:2px}
+  #kma-options{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;max-width:none}
+  .form-col .slider-row{display:grid;grid-template-columns:1fr auto;grid-template-areas:"label val" "range range";gap:2px 12px}
+  .form-col .slider-row .label{grid-area:label}
+  .form-col .slider-row input[type=range]{grid-area:range;width:100%}
+  .form-col .slider-row .slider-val{grid-area:val;width:auto}
+  .run-row{margin-top:10px;padding:12px 20px}
+  /* Settings scrolls inside its column (max-height set by fitSettingsColumn
+     in app.js); at its end the scroll carries on to the page. */
+  .form-col-settings{overflow-y:auto;padding-right:10px;padding-bottom:4px}
+}
 @media (max-width:880px){
   html,body{height:auto;overflow:auto}
   .layout{grid-template-columns:1fr;overflow:visible}
   .main-col{padding:0;height:auto;overflow:visible}
-  .workspace{flex-direction:column;width:100%;transform:none!important}
+  .workspace{flex-direction:column;width:100%;transform:none!important;transition:none}
   .pane{width:100%;padding:24px 20px 60px;height:auto;overflow:visible}
   /* Stacked layout shows one pane at a time; results only exist after a run. */
   .pane-results{display:none}
@@ -382,16 +443,20 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
   .brand-sub{display:none}
 }
 @media (max-width:760px){
-  .cabb-pred{grid-template-columns:1fr auto;grid-auto-rows:auto}
-  .cabb-bars{grid-column:1 / -1}
-  .cabb-abrow{grid-template-columns:minmax(90px,130px) 1fr 44px}
-  .cabb-bar-n{display:none}
+  .report-head{padding:16px}
+  .report-body{padding:0 16px 16px}
+  .rep-class,.rep-vf-row,.rep-gene{grid-template-columns:minmax(0,1fr)}
+  .rep-genes{gap:12px}
+  .report-facts{grid-template-columns:minmax(0,1fr);gap:2px}
+  .report-facts dd{margin-bottom:8px}
 }
 @media (max-width:520px){
   .topbar{flex-wrap:wrap;gap:10px;padding:12px 16px}
   .topbar-nav{gap:6px}
   .topbar-link{padding:4px 10px}
-  .upload-grid{grid-template-columns:1fr}
+  .seg-long{display:none}
+  .seg-short{display:inline}
+  .dz-empty{padding:20px 14px}
   /* Rows stack: the label sits above its control. */
   .row{flex-wrap:wrap;gap:8px 16px}
   .row > .label{flex-basis:100%;width:auto;padding-top:0}
@@ -399,10 +464,42 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
   .slider-row .label{grid-column:1 / -1}
   .fetch-row #run-accession{flex:1 1 100%;max-width:none}
   .fetch-row .btn{flex:1 1 calc(50% - 8px);justify-content:center}
-  .run-row{flex-direction:column-reverse;align-items:stretch}
+  .run-row{flex-direction:column;align-items:stretch}
+  #run-hint{text-align:left}
   .run-row .btn-primary{width:100%;justify-content:center}
-  .db-select{width:100%}
+  .db-list{width:100%}
+  .ev .res-table{min-width:640px}
+  .ev .res-table col:nth-child(1){width:110px!important}
+  .ev .res-table col:nth-child(3){width:84px!important}
+  .ev .res-table col:nth-child(4){width:92px!important}
+  .ev .res-table col:nth-child(5){width:72px!important}
+  .results-actions{width:100%}
+  .results-actions .btn{flex:1 1 0;justify-content:center}
   .fp-field input[type=text]{min-width:0;width:100%}
   .gv-overlay{padding:16px 8px}
   .gv-stats{gap:8px 14px}
+}
+
+/* ── Print / save as PDF: the results page as a report ── */
+@media print{
+  @page{margin:14mm}
+  html,body{height:auto!important;overflow:visible!important;background:#fff}
+  .topbar,.terminal-card,.results-toolbar,.gv-overlay,.rep-species-input,.rep-species-status,.qc-dl,.ev-qc .opt-note,.show-more-row,.resize-handle{display:none!important}
+  .layout,.main-col{display:block;height:auto!important;overflow:visible!important}
+  .workspace{display:block!important;width:100%!important;transform:none!important;transition:none}
+  .pane{width:100%!important;height:auto!important;overflow:visible!important}
+  /* Results on screen: print only the report; otherwise print the input page. */
+  .workspace.show-results .pane-config,.workspace:not(.show-results) .pane-results{display:none!important}
+  .workspace.show-results .pane-results{display:block!important;padding:0!important}
+  .print-only{display:inline!important}
+  .res-table tr.row-limited{display:table-row!important}
+  .report,.ev{border-color:#bbb}
+  .ev{break-inside:auto}
+  .ev .res-table{min-width:0}
+  .rep-gene,.rep-vf-row,.res-table tr,.qc-grid{break-inside:avoid}
+  .rep-class-name,.rep-sec-title,.ev > summary{break-after:avoid}
+  .ev-name::before{display:none}
+  .gene-btn,.gv-link{text-decoration:none}
+  a::after{content:none!important}
+  a{text-decoration:none}
 }

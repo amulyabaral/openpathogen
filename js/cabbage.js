@@ -1,36 +1,29 @@
-/* cabbage.js — CABBAGE, the comprehensive AMR genotype–phenotype database
- * (Dickens et al., Nucleic Acids Research 2026, doi:10.1093/nar/gkag780),
- * served entirely client-side from a compact snapshot of the EMBL-EBI AMR
- * portal (https://www.ebi.ac.uk/amr) at a pinned release.
+/* cabbage.js — tested-resistance rates from CABBAGE, the AMR genotype–
+ * phenotype database (Dickens et al., Nucleic Acids Research 2026,
+ * doi:10.1093/nar/gkag780), served client-side from a snapshot of the
+ * EMBL-EBI AMR portal at a pinned release.
  *
- * The snapshot (CBG1, see scripts/build-cabbage.py) stores each portal view
- * as column dictionaries plus varint row indices. This module decodes it
- * and powers the "Phenotype associations (CABBAGE)" card in the results:
- *   - the precomputed gene→phenotype association table (join of the
- *     isolates that have both a genome and an antibiogram), keyed by the
- *     AMRFinderPlus element symbol, with each gene's linked antibiotics;
- *   - the full phenotypes view, for country / year / isolation-source
- *     filtered species antibiograms.
+ * The report uses one thing from it: for a detected gene, how often isolates
+ * of the same species carrying that gene tested resistant to the antibiotics
+ * the gene acts on. The association table behind this was precomputed by
+ * scripts/build-cabbage.py (the genotypes and phenotypes views joined on the
+ * isolate); each row is (species, gene, antibiotic, R, I, S). Genes are
+ * AMRFinderPlus element symbols, each with the antibiotics the portal links
+ * it to.
  *
- * Column data is streamed straight off the varint bytes (one varint per
- * row, so a column scan is a single sequential walk), which keeps the
- * ~1.7M-row view at a few MB instead of hundreds.
- *
- * Files are fetched same-origin first (databases/cabbage/), then from
- * Zenodo (CABBAGE_BASE), and cached in IndexedDB like the KMA indexes.
+ * Files are fetched same-origin (databases/cabbage/), then from Zenodo when
+ * CABBAGE_BASE is set, verified against pinned hashes and cached in
+ * IndexedDB like the KMA indexes.
  */
 
 import { cacheDBFile, getCachedDBFile, deleteDBFile } from './db.js';
 import { fetchAssetWithProgress } from './assets.js';
 import { verifyPinned } from './integrity.js';
+import { antibioticClasses, linkedAntibiotics } from './antibiotic-classes.js';
 
-// Snapshot files: same-origin databases/cabbage/ first (local dev / any
-// static host that ships them), then Zenodo (set when the snapshot is
-// published to a Zenodo record; the /api/records/…/files/<name>/content
-// form is the CORS-enabled one).
+// Remote copy of databases/cabbage/ (the /api/records/…/files/<name>/content
+// form is the CORS-enabled one). Empty: same-origin only.
 const CABBAGE_BASE = '';
-
-const viewsByKey = new Map(); // decoded snapshots, kept for the session
 
 // ── Snapshot acquisition (network or IndexedDB) ──
 
@@ -59,26 +52,11 @@ export function getManifest() {
       }
       throw new Error('CABBAGE manifest not found — run scripts/fetch-cabbage.py and scripts/build-cabbage.py');
     })();
+    // A failed attempt (offline) must not stick for the whole session.
+    manifestPromise.catch(() => { manifestPromise = null; });
   }
   return manifestPromise;
 }
-
-export async function loadView(key, onProgress) {
-  if (viewsByKey.has(key)) return viewsByKey.get(key);
-  const manifest = await getManifest();
-  const info = manifest.views[key];
-  if (!info) throw new Error(`Unknown CABBAGE view: ${key}`);
-  const gz = await fetchSnapshotBytes(info.file, info.bytes, onProgress);
-  const bytes = window.fflate.gunzipSync(gz);
-  const view = decodeSnapshot(bytes);
-  if (view.rowCount !== info.rows) {
-    throw new Error(`Snapshot corrupt: ${key} has ${view.rowCount} rows, manifest says ${info.rows}`);
-  }
-  viewsByKey.set(key, view);
-  return view;
-}
-
-export function isViewLoaded(key) { return viewsByKey.has(key); }
 
 async function fetchSnapshotBytes(file, expectedBytes, onProgress) {
   const cacheKey = 'cabbage:' + file;
@@ -111,174 +89,43 @@ async function fetchSnapshotBytes(file, expectedBytes, onProgress) {
   throw lastErr || new Error('snapshot download failed');
 }
 
-// ── CBG1 decoder ──
+// ── Association table ──
 
-const TD = new TextDecoder('utf-8');
+let associationsPromise = null;
 
-function decodeSnapshot(u8) {
-  let p = 0;
-  const magic = String.fromCharCode(u8[p++], u8[p++], u8[p++], u8[p++]);
-  if (magic !== 'CBG1') throw new Error('Not a CBG1 snapshot');
-  const version = u8[p++];
-  if (version !== 1) throw new Error(`Unsupported CBG version ${version}`);
-
-  const str = () => {
-    const len = u8[p] | (u8[p + 1] << 8);
-    p += 2;
-    const s = TD.decode(u8.subarray(p, p + len));
-    p += len;
-    return s;
-  };
-
-  const release = str();
-  const viewId = u8[p++];
-  const name = str();
-  const rowCount = (u8[p] | (u8[p + 1] << 8) | (u8[p + 2] << 16) | (u8[p + 3] << 24)) >>> 0;
-  p += 4;
-  const nCols = u8[p] | (u8[p + 1] << 8);
-  p += 2;
-
-  const columns = [];
-  for (let c = 0; c < nCols; c++) {
-    const id = str();
-    const kind = u8[p++] === 0 ? 's' : 'n';
-    if (kind === 's') {
-      const nDict = (u8[p] | (u8[p + 1] << 8) | (u8[p + 2] << 16) | (u8[p + 3] << 24)) >>> 0;
-      p += 4;
-      const dict = new Array(nDict + 1); // index 0 = null
-      for (let i = 1; i <= nDict; i++) dict[i] = str();
-      columns.push({ id, kind, dict, varints: null, keys: null, vals: null });
-    } else {
-      const vals = new Float64Array(rowCount);
-      for (let i = 0; i < rowCount; i++) {
-        // little-endian f64, read byte-wise (DataView-free, avoids alignment)
-        const b = [];
-        for (let k = 0; k < 8; k++) b[k] = u8[p++];
-        F64BYTES.set(b);
-        vals[i] = F64VIEW[0];
+// Loads once per session (about 190 KB). Concurrent callers share the load.
+export function loadAssociations() {
+  if (!associationsPromise) {
+    associationsPromise = (async () => {
+      let expectedBytes = 0;
+      try { expectedBytes = (await getManifest()).associations?.bytes || 0; } catch (_) {}
+      const gz = await fetchSnapshotBytes('associations.json.gz', expectedBytes);
+      const parsed = JSON.parse(window.fflate.strFromU8(window.fflate.gunzipSync(gz)));
+      // Lookup: "species\x00gene" -> rows.
+      const bySpeciesGene = new Map();
+      const speciesSet = new Set();
+      for (const row of parsed.rows) {
+        speciesSet.add(row.species);
+        const key = row.species + '\x00' + row.gene;
+        let list = bySpeciesGene.get(key);
+        if (!list) bySpeciesGene.set(key, list = []);
+        list.push(row);
       }
-      columns.push({ id, kind, dict: null, varints: null, keys: null, vals });
-    }
+      const genes = new Map();
+      for (const g of parsed.genes || []) {
+        genes.set(g.gene, { symbol: g.symbol || g.gene, cls: g.class || '', links: new Set(g.links || []) });
+      }
+      return {
+        minN: parsed.min_n || 20,
+        species: parsed.species.filter(s => speciesSet.has(s)),
+        bySpeciesGene,
+        genes,
+        keyIndex: new Map(),
+      };
+    })();
+    associationsPromise.catch(() => { associationsPromise = null; });
   }
-
-  // Remaining bytes are the concatenated varint blocks, in column order.
-  for (const col of columns) {
-    if (col.kind !== 's') continue;
-    let end = p, n = 0;
-    while (n < rowCount && end < u8.length) {
-      let b;
-      do { b = u8[end++]; } while (b & 0x80);
-      n++;
-    }
-    col.varints = u8.subarray(p, end);
-    p = end;
-  }
-
-  return { id: viewId, name, release, rowCount, columns, colById: new Map(columns.map(c => [c.id, c])) };
-}
-
-const F64BYTES = new Uint8Array(8);
-const F64VIEW = new Float64Array(F64BYTES.buffer);
-
-// ── Column access ──
-
-// Cached Uint32Array of dictionary indices (random access).
-function keys(col) {
-  if (col.keys) return col.keys;
-  const v = col.varints;
-  if (!v) return new Uint32Array(0);
-  let n = 0;
-  for (let i = 0; i < v.length; i++) if (!(v[i] & 0x80)) n++;
-  const arr = new Uint32Array(n);
-  let p = 0, i = 0;
-  while (p < v.length) {
-    let shift = 0, val = 0, b;
-    do {
-      b = v[p++];
-      val |= (b & 0x7F) << shift;
-      shift += 7;
-    } while (b & 0x80);
-    arr[i++] = val >>> 0;
-  }
-  col.keys = arr;
-  return arr;
-}
-
-// ── Gene→phenotype associations (results-card engine) ──
-//
-// Precomputed at snapshot-build time (scripts/build-cabbage.py) by joining
-// the genotypes and phenotypes views on BioSample. Each row: for (species,
-// gene, antibiotic), how many isolates carrying the gene were recorded
-// R / I / S, with phenotypes taken from the 2025 CLSI/EUCAST reinterpretation
-// first. Genes are AMRFinderPlus element symbols (acquired genes only); each
-// gene also carries its AMRFinderPlus class and the antibiotic names the
-// portal links it to.
-
-let associationsCache = null;
-
-export async function loadAssociations(onProgress) {
-  if (associationsCache) return associationsCache;
-  let expectedBytes = 0;
-  try { expectedBytes = (await getManifest()).associations?.bytes || 0; } catch (_) {}
-  const gz = await fetchSnapshotBytes('associations.json.gz', expectedBytes, onProgress);
-  const parsed = JSON.parse(window.fflate.strFromU8(window.fflate.gunzipSync(gz)));
-  // Lookup: "species\x00gene" -> rows.
-  const bySpeciesGene = new Map();
-  const speciesSet = new Set();
-  for (const row of parsed.rows) {
-    speciesSet.add(row.species);
-    const key = row.species + '\x00' + row.gene;
-    let list = bySpeciesGene.get(key);
-    if (!list) bySpeciesGene.set(key, list = []);
-    list.push(row);
-  }
-  const genes = new Map();
-  for (const g of parsed.genes || []) {
-    genes.set(g.gene, { symbol: g.symbol || g.gene, cls: g.class || '', links: new Set(g.links || []) });
-  }
-  associationsCache = {
-    version: parsed.version || 1,
-    minN: parsed.min_n || 20,
-    release: null, // filled by callers from the manifest
-    species: parsed.species.filter(s => speciesSet.has(s)),
-    bySpeciesGene,
-    genes,
-    background: parsed.background,
-    backgroundSeq: parsed.background_seq || parsed.background,
-    keyIndex: new Map(),
-  };
-  return associationsCache;
-}
-
-// Canonical gene symbol — mirrors canon_gene() in scripts/build-cabbage.py.
-// Strips quotes and parentheses and trailing _N row suffixes ("vanA_2" ->
-// "vanA", "erm(C)" -> "ermC", "ermC'" -> "ermC") so AMRFinderPlus and
-// ResFinder/CARD spelling variants unify.
-export function geneCanon(g) {
-  let s = String(g).replace(/['’()]/g, '');
-  for (;;) {
-    const m = s.match(/^(.*)_(\d+)$/);
-    if (!m) break;
-    s = m[1];
-  }
-  return s;
-}
-
-// Extract a gene symbol from a KMA template name, per source database:
-// ResFinder "mecA_1_U72714" -> "mecA";
-// CARD "gb|HQ845196.1|+|0-861|ARO:3001109|SHV-52 [Klebsiella pneumoniae]" -> "SHV-52".
-// Returned as detected (canonicalisation happens at match time).
-export function templateGene(template, db) {
-  if (!template) return null;
-  if (db === 'card_homolog') {
-    const bars = template.split('|');
-    if (bars.length >= 6) {
-      const gene = bars[5].split(' [')[0].trim();
-      if (gene) return gene;
-    }
-    return template;
-  }
-  return template.split('_')[0];
+  return associationsPromise;
 }
 
 // ── Matching detected genes to CABBAGE symbols ──
@@ -289,22 +136,37 @@ export function templateGene(template, db) {
 // symbol without a trailing number (ermA1 vs ermA), and a "bla" prefix for
 // beta-lactamases named without it (CARD SHV-52 vs blaSHV-52). Fusion
 // symbols in CABBAGE (aac(6')-Ie/aph(2'')-Ia) are also indexed by each
-// half. The matched CABBAGE symbol is always shown, so a loose match is
-// visible to the user.
+// half. The report names the matched CABBAGE symbol, so a loose match is
+// visible to the reader.
+
+// Canonical gene symbol — mirrors canon_gene() in scripts/build-cabbage.py.
+// Strips quotes and parentheses and trailing _N row suffixes ("vanA_2" ->
+// "vanA", "erm(C)" -> "ermC", "ermC'" -> "ermC").
+function geneCanon(g) {
+  let s = String(g).replace(/['’()]/g, '');
+  for (;;) {
+    const m = s.match(/^(.*)_(\d+)$/);
+    if (!m) break;
+    s = m[1];
+  }
+  return s;
+}
 
 const ALIASES = {
   'aac6-aph2': 'aac6-Ie/aph2-Ia',         // ResFinder aac(6')-aph(2'')
   'aac6-ie-aph2-ia': 'aac6-Ie/aph2-Ia',   // CARD AAC(6')-Ie-APH(2'')-Ia
 };
 
-// Canonical symbol without a trailing allele letter after a roman numeral
-// or digit, lower-cased: "aph3-IIIa" -> "aph3-iii", "blaTEM-1B" -> "blatem-1".
+// Canonical symbol without a trailing allele letter, lower-cased: after a
+// digit ("blaTEM-1B" -> "blatem-1") or after an upper-case roman numeral
+// ("aph3-IIIa" -> "aph3-iii"). The allele letter after a numeral is lower
+// case, so "aph3-VI" keeps its I.
 function looseKey(c) {
-  return c.replace(/([IVX]|\d)[A-Za-z]$/, '$1').toLowerCase();
+  return c.replace(/(\d)[A-Za-z]$|([IVX])[a-z]$/, '$1$2').toLowerCase();
 }
 
 // Candidate lookup keys for a detected gene, most specific first.
-export function geneKeys(name) {
+function geneKeys(name) {
   const c = geneCanon(name);
   const lc = c.toLowerCase();
   const out = [];
@@ -319,7 +181,6 @@ export function geneKeys(name) {
 }
 
 function speciesIndex(assoc, species) {
-  if (!assoc.keyIndex) assoc.keyIndex = new Map();
   let idx = assoc.keyIndex.get(species);
   if (idx) return idx;
   idx = new Map();
@@ -351,7 +212,7 @@ function evidence(assoc, species, gene) {
 // The CABBAGE gene (canonical symbol) a detected gene corresponds to for
 // this species, or null. Ambiguous loose matches resolve to the gene with
 // the most tested isolates.
-export function matchAssociationGene(assoc, species, gene) {
+function matchAssociationGene(assoc, species, gene) {
   const idx = speciesIndex(assoc, species);
   for (const k of geneKeys(gene)) {
     const cands = idx.get(k);
@@ -362,76 +223,60 @@ export function matchAssociationGene(assoc, species, gene) {
   return null;
 }
 
-// Display spelling and metadata for a CABBAGE gene.
-export function geneInfo(assoc, gene) {
-  return assoc.genes?.get(gene) || { symbol: gene, cls: '', links: new Set() };
+function geneInfo(assoc, gene) {
+  return assoc.genes.get(gene) || { symbol: gene, cls: '', links: new Set() };
 }
 
-// Per antibiotic, the association between the detected genes and the
-// recorded phenotype for one species. rate = share of carriers recorded
-// resistant (strongest gene); rateNS adds intermediate. The background is
-// the sequenced cohort of the species (backgroundSeq), the population the
-// carriers are drawn from.
-export function predictPhenotypes(assoc, species, detectedGenes, minN = assoc.minN || 20) {
-  const byAntibiotic = new Map();
-  for (const g of detectedGenes) {
-    const matched = matchAssociationGene(assoc, species, g.name);
+// Antibiotic names as CABBAGE writes them: lower case, combinations joined
+// with "-" (ResFinder writes "Amoxicillin+Clavulanic acid").
+function cabbageName(ab) {
+  const k = String(ab).trim().toLowerCase().replace(/\s*\+\s*/g, '-');
+  return k === 'rifampicin' ? 'rifampin' : k;
+}
+
+// A portal link that names a drug (mecA → methicillin, ceftaroline) rather
+// than a class (blaZ → "beta-lactam antibiotic", blaCTX-M-15 → "cephalosporin").
+const isDrugLink = (l) => !!antibioticClasses(l) || String(l).toLowerCase() === 'kanamycin a';
+
+// Tested-resistance rates for one detected gene in one species, for the
+// antibiotics the gene is known to act on: those ResFinder lists for it
+// (resfinderAntibiotics) and those the portal links to it by drug name.
+// Class-level links are not used: "beta-lactam antibiotic" would put
+// methicillin under blaZ and ceftazidime-avibactam under CTX-M-15, rates that
+// come from other genes the same isolates carry. names: the gene's names,
+// tried in order. Drug-linked antibiotics come first (mecA: methicillin,
+// ceftaroline), then by number of isolates tested.
+export function linkedEvidence(assoc, species, names, resfinderAntibiotics) {
+  const minN = assoc.minN || 20;
+  const listed = new Set((resfinderAntibiotics || []).map(cabbageName));
+  for (const name of names) {
+    const matched = matchAssociationGene(assoc, species, name);
     if (!matched) continue;
-    const symbol = geneInfo(assoc, matched).symbol;
-    for (const row of assoc.bySpeciesGene.get(species + '\x00' + matched) || []) {
-      const n = row.r + row.i + row.s;
+    const info = geneInfo(assoc, matched);
+    const drugLinks = [...info.links].filter(isDrugLink);
+    const rows = [];
+    for (const r of assoc.bySpeciesGene.get(species + '\x00' + matched) || []) {
+      const n = r.r + r.i + r.s;
       if (n < minN) continue;
-      let e = byAntibiotic.get(row.antibiotic);
-      if (!e) byAntibiotic.set(row.antibiotic, e = { antibiotic: row.antibiotic, genes: [] });
-      e.genes.push({ gene: matched, symbol, detectedAs: g.name, db: g.db, r: row.r, i: row.i, s: row.s, n });
+      const ab = r.antibiotic.toLowerCase();
+      const linked = drugLinks.some(l => linkedAntibiotics(l).has(ab));
+      if (linked || listed.has(ab)) rows.push({ antibiotic: r.antibiotic, r: r.r, i: r.i, s: r.s, n, linked });
     }
+    rows.sort((a, b) => b.linked - a.linked || b.n - a.n);
+    return { symbol: info.symbol, detectedAs: name, rows };
   }
-  const bg = new Map((assoc.backgroundSeq || assoc.background)
-    .filter(b => b.species === species)
-    .map(b => [b.antibiotic, b]));
-  const out = [...byAntibiotic.values()].map(e => {
-    e.genes.sort((a, b) => b.n - a.n);
-    const rate = e.genes.reduce((acc, g) => Math.max(acc, g.r / g.n), 0);
-    const rateNS = e.genes.reduce((acc, g) => Math.max(acc, (g.r + g.i) / g.n), 0);
-    const evidenceN = e.genes.reduce((acc, g) => Math.max(acc, g.n), 0);
-    const b = bg.get(e.antibiotic);
-    return {
-      ...e,
-      rate,
-      rateNS,
-      evidence: evidenceN,
-      verdict: rate >= 0.85 ? 'resistant' : rateNS >= 0.4 ? 'uncertain' : 'susceptible',
-      background: b ? { r: b.r, i: b.i, s: b.s, n: b.r + b.i + b.s } : null,
-    };
-  });
-  // Most evidence first, then rate: a 100%-resistant n=21 fluke must not
-  // outrank a 97%-resistant n=1,791 signal.
-  out.sort((a, b) => b.evidence - a.evidence || b.rate - a.rate);
-  return out;
+  return null;
 }
 
-// Which detected genes found no CABBAGE data for this species.
-export function unmatchedGenes(assoc, species, detectedGenes) {
-  return detectedGenes.filter(g => !matchAssociationGene(assoc, species, g.name));
-}
-
-// Instant background antibiogram for a species (all AST records,
-// aggregated at build time — no phenotype-view download needed).
-export function backgroundAntibiogram(assoc, species) {
-  return assoc.background
-    .filter(b => b.species === species)
-    .map(b => ({ antibiotic: b.antibiotic, r: b.r, i: b.i, s: b.s, n: b.r + b.i + b.s }))
-    .sort((a, b) => b.n - a.n);
-}
-
-// Fuzzy-resolve an organism string ("S. aureus USA300_TCH1516" from ENA)
-// against the species vocabulary; exact match first, then abbreviated
-// genus + species epithet.
+// Fuzzy-resolve an organism string ("Staphylococcus aureus subsp. aureus
+// USA300_TCH1516" from ENA, or "K. pneumoniae" typed by hand) against the
+// species vocabulary: exact match first, then genus (or its initial) plus
+// species epithet.
 export function resolveSpecies(speciesList, organism) {
   if (!organism) return null;
-  const q = String(organism).toLowerCase().trim();
+  const q = String(organism).toLowerCase().trim().replace(/\s+/g, ' ');
   for (const s of speciesList) if (s.toLowerCase() === q) return s;
-  const [g, e] = q.split(/\s+/);
+  const [g, e] = q.split(' ');
   if (!g || !e) return null;
   const abbrev = g.endsWith('.') ? g.slice(0, -1) : null;
   const cands = [];
@@ -441,79 +286,4 @@ export function resolveSpecies(speciesList, organism) {
     if (genusOk && toks[1] === e) cands.push(s);
   }
   return cands.length === 1 ? cands[0] : null;
-}
-
-// Runtime-filtered antibiogram from the full phenotypes view (country /
-// year / isolation-source filters). Requires the 5.7 MB view to be loaded.
-export function antibiogram(view, species, { country = null, sourceCategory = null, yearFrom = null, yearTo = null } = {}) {
-  const spCol = view.colById.get('phenotype-species');
-  const abCol = view.colById.get('phenotype-antibiotic_name');
-  const phCol = view.colById.get('phenotype-resistance_phenotype');
-  const clsiCol = view.colById.get('phenotype-Updated_phenotype_CLSI');
-  const eucastCol = view.colById.get('phenotype-Updated_phenotype_EUCAST');
-  const ctryCol = country && view.colById.get('phenotype-country');
-  const srcCol = sourceCategory && view.colById.get('phenotype-isolation_source_category');
-  const yrCol = (yearFrom != null || yearTo != null) && view.colById.get('phenotype-collection_year');
-  if (!spCol || !abCol || !phCol) return [];
-
-  const spIdx = keys(spCol), abIdx = keys(abCol), phIdx = keys(phCol);
-  const clsiIdx = clsiCol ? keys(clsiCol) : null;
-  const eucastIdx = eucastCol ? keys(eucastCol) : null;
-  const ctryIdx = ctryCol ? keys(ctryCol) : null;
-  const srcIdx = srcCol ? keys(srcCol) : null;
-  const yrV = yrCol ? yrCol.vals : null;
-
-  const speciesIdx = new Set();
-  for (let i = 1; i < spCol.dict.length; i++) {
-    if (spCol.dict[i] === species) speciesIdx.add(i);
-  }
-  const ctrySel = ctryIdx ? new Set(ctryCol.dict.map((v, i) => (v === country ? i : -1)).filter(i => i > 0)) : null;
-  const srcSel = srcIdx ? new Set(srcCol.dict.map((v, i) => (v === sourceCategory ? i : -1)).filter(i => i > 0)) : null;
-
-  // Phenotype bucket by dictionary index, preferring updated breakpoints.
-  const bucketOf = (phDict, di) => {
-    if (!di) return null;
-    const ph = phDict[di];
-    if (!ph) return null;
-    if (ph === 'resistant' || ph === 'non-susceptible') return 'r';
-    if (ph.includes('intermediate')) return 'i';
-    if (ph.startsWith('susceptible')) return 's';
-    return null;
-  };
-  const clsiBucket = clsiCol ? new Array(clsiCol.dict.length) : null;
-  if (clsiBucket) for (let i = 1; i < clsiCol.dict.length; i++) clsiBucket[i] = bucketOf(clsiCol.dict, i);
-  const eucastBucket = eucastCol ? new Array(eucastCol.dict.length) : null;
-  if (eucastBucket) for (let i = 1; i < eucastCol.dict.length; i++) eucastBucket[i] = bucketOf(eucastCol.dict, i);
-  const phBucket = new Array(phCol.dict.length);
-  for (let i = 1; i < phCol.dict.length; i++) phBucket[i] = bucketOf(phCol.dict, i);
-
-  const counts = new Map(); // antibiotic -> [r, i, s]
-  const n = view.rowCount;
-  for (let r = 0; r < n; r++) {
-    if (!speciesIdx.has(spIdx[r])) continue;
-    if (ctrySel && !ctrySel.has(ctryIdx[r])) continue;
-    if (srcSel && !srcSel.has(srcIdx[r])) continue;
-    if (yrV) {
-      const y = yrV[r];
-      if (Number.isNaN(y)) continue;
-      if (yearFrom != null && y < yearFrom) continue;
-      if (yearTo != null && y > yearTo) continue;
-    }
-    const b = (clsiBucket && clsiBucket[clsiIdx[r]]) || (eucastBucket && eucastBucket[eucastIdx[r]]) || phBucket[phIdx[r]];
-    if (!b) continue;
-    const ab = abCol.dict[abIdx[r]];
-    let e = counts.get(ab);
-    if (!e) counts.set(ab, e = [0, 0, 0]);
-    e['ris'.indexOf(b)]++;
-  }
-  return [...counts.entries()]
-    .map(([antibiotic, e]) => ({ antibiotic, r: e[0], i: e[1], s: e[2], n: e[0] + e[1] + e[2] }))
-    .sort((a, b) => b.n - a.n);
-}
-
-export function fmtInt(n) {
-  if (n == null) return '—';
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
-  return String(n);
 }

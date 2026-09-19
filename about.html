@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>About openpathogen: how in-browser AMR detection works</title>
-  <meta name="description" content="How openpathogen works: fastp and KMA compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, with CABBAGE phenotype predictions. No installation, no upload.">
-  <meta name="author" content="Amulya Baral">
+  <meta name="description" content="How openpathogen works: fastp and KMA compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, and report resistance genes by drug class with CABBAGE tested-resistance rates. No installation, no upload.">
   <meta name="robots" content="index, follow, max-image-preview:large">
   <link rel="canonical" href="https://openpathogen.org/about.html">
   <meta name="theme-color" content="#ffffff">
@@ -15,7 +14,7 @@
   <meta property="og:type" content="article">
   <meta property="og:site_name" content="openpathogen">
   <meta property="og:title" content="About openpathogen: how in-browser AMR detection works">
-  <meta property="og:description" content="How openpathogen works: fastp and KMA compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, with CABBAGE phenotype predictions. No installation, no upload.">
+  <meta property="og:description" content="How openpathogen works: fastp and KMA compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, and report resistance genes by drug class with CABBAGE tested-resistance rates. No installation, no upload.">
   <meta property="og:url" content="https://openpathogen.org/about.html">
   <meta property="og:image" content="https://openpathogen.org/og.png">
   <meta property="og:image:width" content="1200">
@@ -23,7 +22,7 @@
   <meta property="og:locale" content="en_US">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="About openpathogen: how in-browser AMR detection works">
-  <meta name="twitter:description" content="How openpathogen works: fastp and KMA compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, with CABBAGE phenotype predictions. No installation, no upload.">
+  <meta name="twitter:description" content="How openpathogen works: fastp and KMA compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, and report resistance genes by drug class with CABBAGE tested-resistance rates. No installation, no upload.">
   <meta name="twitter:image" content="https://openpathogen.org/og.png">
   <script type="application/ld+json">
   {
@@ -32,11 +31,10 @@
     "@id": "https://openpathogen.org/about.html",
     "name": "About openpathogen",
     "url": "https://openpathogen.org/about.html",
-    "description": "How openpathogen works: fastp and the KMA aligner compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, with CABBAGE phenotype predictions.",
+    "description": "How openpathogen works: fastp and the KMA aligner compiled to WebAssembly run in your browser against ResFinder, CARD and VFDB, and report resistance genes by drug class with CABBAGE tested-resistance rates.",
     "inLanguage": "en",
     "datePublished": "2026-08-25",
-    "dateModified": "2026-09-18",
-    "author": { "@type": "Person", "name": "Amulya Baral", "url": "https://amulya.no" },
+    "dateModified": "2026-09-19",
     "isPartOf": { "@type": "WebSite", "name": "openpathogen", "url": "https://openpathogen.org/" },
     "about": { "@id": "https://openpathogen.org/#app" }
   }
@@ -61,7 +59,7 @@
 
     <section id="overview">
       <h1>What openpathogen is and how it works</h1>
-      <p class="doc-byline">Developed by <a href="https://amulya.no" target="_blank" rel="noopener">Amulya Baral</a></p>
+      <p class="doc-byline">Source code on <a href="https://github.com/amulyabaral/openpathogen" target="_blank" rel="noopener">GitHub</a></p>
       <p class="doc-lede">openpathogen is an open-source tool that finds antimicrobial resistance and virulence genes in sequencing reads. It runs entirely in the browser.</p>
       <p>It uses <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a> 1.5.1 for read mapping and <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> 0.22 for quality control. Both are compiled from source to <a href="https://webassembly.org/" target="_blank" rel="noopener">WebAssembly</a>.</p>
       <p>Your data is analysed on your own computer and is never uploaded. This makes it safe to use with clinical or unpublished data.</p>
@@ -88,9 +86,10 @@
     <section id="getting-started">
       <h2>Getting started</h2>
       <ol class="steps">
-        <li>Choose the input type: paired-end, single-end or Nanopore. Pick the databases to screen against. ResFinder is preselected, and any combination of ResFinder, CARD and VFDB runs in one go. Turn on fastp quality control if you want trimming and filtering, and open its settings to change the defaults.</li>
-        <li>Select your read files (<code>.fastq</code> or <code>.fastq.gz</code>), or load the example: <em>S. aureus</em> USA300_TCH1516 (<a href="https://www.ebi.ac.uk/ena/browser/view/SRR10341524" target="_blank" rel="noopener">SRR10341524</a>), a 48 MB MiSeq run of the community-associated MRSA reference strain, downloaded from ENA and cached in your browser. Expect <em>mecA</em>, <em>blaZ</em>, an aminoglycoside gene and a macrolide gene on ResFinder, and PVL and <em>hla</em> on VFDB. You can also fetch any public run by accession (SRR, ERR or DRR) with <strong>Fetch public run</strong>. The organism and read type are set from the ENA record. Files are limited to 1 GB each.</li>
-        <li>Start the analysis. Progress is written to the Logs panel, which shows the exact KMA and fastp commands and their output.</li>
+        <li>Drop your read files (<code>.fastq</code> or <code>.fastq.gz</code>) on the page or choose them. For paired-end reads, select both files at once and they are matched to R1 and R2 by name. The read type is set for you: two files are paired-end, and a single file is Nanopore or single-end depending on its read lengths. Change it with the <strong>Read type</strong> buttons if needed. Or try the example: <em>S. aureus</em> USA300_TCH1516 (<a href="https://www.ebi.ac.uk/ena/browser/view/SRR10341524" target="_blank" rel="noopener">SRR10341524</a>), a 48 MB MiSeq run of the community-associated MRSA reference strain, downloaded from ENA and cached in your browser. Expect <em>mecA</em>, <em>blaZ</em>, an aminoglycoside gene and a macrolide gene on ResFinder, and PVL and <em>hla</em> on VFDB. You can also fetch any public run by accession (SRR, ERR or DRR) with <strong>Fetch reads</strong>. The species and read type are set from the ENA record. Files are limited to 1 GB each.</li>
+        <li>Tick the databases to screen against. ResFinder is preselected, and any combination of ResFinder, CARD and VFDB runs in one go. Turn on fastp quality control if you want trimming and filtering, and open its settings to change the defaults.</li>
+        <li>Enter the species if you know it. This is optional, and adds CABBAGE tested-resistance rates to the report. You can also set it on the results page.</li>
+        <li>Select <strong>Run</strong>. Progress is written to the Logs panel, which shows the exact KMA and fastp commands and their output.</li>
       </ol>
     </section>
 
@@ -107,11 +106,11 @@
     </section>
 
     <section id="cabbage">
-      <h2>CABBAGE: what the genes meant in other isolates</h2>
-      <p>Gene detection tells you which genes are present. The <strong>Phenotype associations (CABBAGE)</strong> card adds what those genes meant in isolates that were tested in the laboratory. CABBAGE (<em>Comprehensive Assessment of Bacterial-Based AMR prediction from Genotypes</em>, <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">Dickens et al., NAR 2026</a>) links 170,750 sequenced isolates to 1.7 million susceptibility test results. Genotypes are AMRFinderPlus calls, and phenotypes are reinterpreted with the 2025 CLSI and EUCAST breakpoints.</p>
-      <p>openpathogen uses a snapshot of the portal, built by joining the genotype and phenotype tables on the isolate. For each species, gene and antibiotic it stores how many isolates carrying the gene tested resistant, intermediate or susceptible, and the same counts for all sequenced isolates of the species. Each detected resistance gene is matched to its CABBAGE symbol. The card then reads, for example: <em>mecA, methicillin: 97.7% of 1,791 S. aureus carriers resistant, against 65% of all sequenced S. aureus</em>.</p>
-      <p>Antibiotics that AMRFinderPlus links to the gene are listed first. Other antibiotics are listed as co-occurrence: the gene does not act on them, so those rates only show what else the same lineages carry. Only associations with at least 20 isolates are shown. Genes without CABBAGE data are listed as such. The species antibiogram below the associations shows resistance rates from all CABBAGE records and can be filtered by country, year and isolation source. Everything is computed in your browser from a cached snapshot, and the table is included in the results ZIP.</p>
-      <p>These are associations, not a susceptibility test. Confirm important results in the laboratory. To explore the full database, use the <a href="https://www.ebi.ac.uk/amr" target="_blank" rel="noopener">EMBL-EBI AMR portal</a>.</p>
+      <h2>The report and CABBAGE rates</h2>
+      <p>The results open with a report. Resistance genes are grouped by drug class, and each gene lists the antibiotics it affects, from ResFinder's curated phenotype table. Beta-lactams are grouped the way they are prescribed (penicillins, cephalosporins by generation, carbapenems), and well-known gene types are labelled: ESBL, AmpC, carbapenemase and methicillin resistance. CARD hits are matched to ResFinder genes by name. CARD genes that ResFinder has no drug class for, such as efflux pumps, are listed separately. The report then lists the drug classes with no acquired gene, and the virulence factors by VFDB category. Use <strong>Print / save PDF</strong> on the results page to keep a copy.</p>
+      <p>When the species is known, each gene also shows how often isolates of that species carrying it tested resistant in CABBAGE (<em>Comprehensive Assessment of Bacterial-Based AMR prediction from Genotypes</em>, <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">Dickens et al., NAR 2026</a>). CABBAGE links 170,750 sequenced isolates to 1.7 million susceptibility test results. Genotypes are AMRFinderPlus calls, and phenotypes are reinterpreted with the 2025 CLSI and EUCAST breakpoints. The report reads, for example: <em>In CABBAGE, S. aureus with mecA tested resistant to methicillin in 97.7% of 1,792 isolates</em>.</p>
+      <p>Rates are shown only for antibiotics the gene is known to affect: those ResFinder lists for it, and those CABBAGE links to it by drug name. Rates for other antibiotics mostly reflect other genes carried by the same lineages, so they are left out. Only rates from at least 20 tested isolates are shown. CABBAGE covers 28 species. The species is filled in for public runs and the example. For your own files, type it in on the input page or the results page.</p>
+      <p>These rates describe other isolates, not your sample, and include the effect of any other genes those isolates carry. They are not a susceptibility test, so confirm results that matter for treatment in the laboratory. To explore the full database, use the <a href="https://www.ebi.ac.uk/amr" target="_blank" rel="noopener">EMBL-EBI AMR portal</a>. Everything is computed in your browser from a cached snapshot of under 1 MB. The rates behind the report are in the results ZIP as <code>cabbage_predictions.csv</code>.</p>
     </section>
 
     <section id="notes">
@@ -119,7 +118,8 @@
       <ul class="tips">
         <li>The default thresholds are 90% template identity and 60% template coverage. Lower the identity threshold to pick up divergent variants, or lower the coverage threshold for fragmented or low-depth samples. Both sliders apply to every selected database.</li>
         <li>Nanopore mode runs KMA with <code>-bcNano</code> for indel-aware base calling. fastp then only reports statistics.</li>
-        <li>Click any detected gene in the results to see its coverage, consensus sequence, alignment and variants.</li>
+        <li>Click any gene name in the report or the gene tables to see its coverage, consensus sequence, alignment and variants.</li>
+        <li><strong>Print / save PDF</strong> prints the report with every gene table expanded. In the print dialog, choose "Save as PDF" to keep a file.</li>
         <li>The results ZIP contains, per database, <code>.res</code>, <code>.aln</code>, <code>.fsa</code>, <code>.frag.gz</code>, <code>.mat.gz</code>, <code>.vcf.gz</code> and <code>.mapstat</code>, plus the fastp reports, the CABBAGE table as CSV and the run log.</li>
         <li>openpathogen needs a browser with <code>SharedArrayBuffer</code> support: recent Chrome, Firefox, Edge or Safari.</li>
       </ul>
