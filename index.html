@@ -331,7 +331,7 @@
       <div class="info-grid">
         <div>
           <h3>Runs in your browser</h3>
-          <p>We compiled fastp and KMA to WebAssembly and provide indexed database files. Because of this, your sequencing data is processed entirely client-side (in your own computer - which means there's no big, bulky servers anywhere!). No need to worry about accounts, queueing, or data compliance. Once you load the website and fetch the databases, you can even plug it off the internet and it'll still work, even on a smartphone ;).</p>
+          <p>openpathogen uses fastp and KMA compiled to WebAssembly and provides indexed database files. Because of this, your sequencing data is processed entirely client-side (in your own computer - which means there's no big, bulky servers anywhere!). No need to worry about accounts, queueing, or data compliance. Once you load the website and fetch the databases, you can even plug it off the internet and it'll still work, even on a smartphone ;).</p>
         </div>
         <div>
           <h3>Databases</h3>
@@ -345,7 +345,7 @@
       <h2 id="faq-title">Frequently asked questions</h2>
       <dl class="faq" aria-labelledby="faq-title">
         <dt>Is my sequencing data uploaded anywhere?</dt>
-        <dd>No. FASTQ files are read into browser memory, processed by WebAssembly and discarded when you close the tab. The only downloads are the app, the databases and, if you ask for one, a public run from ENA. The <a class="no-arrow" href="about.html#privacy">privacy section</a> lists every request.</dd>
+        <dd>No. FASTQ files are read into browser memory, processed by WebAssembly and discarded when you close the tab. The only downloads are the app, the databases and, if you ask for one, a public run from ENA. You can read more about it in the <a class="no-arrow" href="about.html#privacy">privacy section</a>.</dd>
         <dt>Which inputs are supported?</dt>
         <dd>Illumina paired-end, single-end and Oxford Nanopore reads in FASTQ, plain or gzipped. You can also fetch any public run by its SRA or ENA accession. Files up to 1 GB each are handled in memory.</dd>
         <dt>What do the results contain?</dt>
