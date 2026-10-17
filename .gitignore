@@ -85,3 +85,9 @@ fastp/build-src/
 
 # wasm32 KMA objects (Makefile.wasm32)
 kma/build32/
+
+# Deacon build tree (deacon/build.sh). The frozen human index (239 MiB) is
+# over GitHub's file limit; deacon/build.sh --index rebuilds it and
+# scripts/build-dist.sh ships it.
+deacon/build-src/
+databases/deacon/
