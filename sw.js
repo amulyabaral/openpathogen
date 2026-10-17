@@ -104,7 +104,11 @@ function keyOf(url) {
 
 async function networkFirst(req, cacheable) {
   try {
-    const res = await fetch(req);
+    // Code is revalidated on every load whatever the host's cache headers
+    // say (a zone-level browser cache TTL at Cloudflare overrides the
+    // no-cache in _headers): a conditional request answered with 304 is
+    // cheap, a module left over from the previous deploy is not.
+    const res = await fetch(cacheable && req.mode !== 'navigate' ? new Request(req, { cache: 'no-cache' }) : req);
     if (cacheable && res.ok && res.status === 200 && res.type === 'basic' && !res.redirected) {
       const cache = await caches.open(CACHE);
       cache.put(keyOf(req.url), res.clone()).catch(() => {});
