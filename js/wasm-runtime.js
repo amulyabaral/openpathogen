@@ -2,6 +2,7 @@ import { getCachedDBFile, cacheDBFile, deleteDBFile } from './db.js';
 import { fetchAssetWithProgress } from './assets.js';
 import { verifyPinned } from './integrity.js';
 import { ENGINE, ENGINE_FORCED, threadCount } from './engine.js';
+import { kmaIdentityFloor, normaliseThresholds } from './thresholds.js';
 
 const DATABASES = {
   resfinder: {
@@ -39,10 +40,10 @@ export function getDatabaseList() {
 //
 // Both builds (wasm64, and the wasm32 fallback for browsers without Memory64;
 // see engine.js) use pthreads, which need cross-origin isolation
-// (SharedArrayBuffer). The coi-serviceworker shim (loaded first in
-// index.html) establishes it, reloading once on first visit. The KMA module
-// itself is loaded per-run inside a Web Worker, so there is nothing heavy to
-// pre-initialise here.
+// (SharedArrayBuffer). The production host sends the COOP/COEP headers
+// (_headers); elsewhere sw.js adds them and app.js reloads the page once.
+// The KMA module itself is loaded per-run inside a Web Worker, so there is
+// nothing heavy to pre-initialise here.
 
 export async function initWasm() {
   if (typeof Worker === 'undefined') {
@@ -322,11 +323,17 @@ function sanitizePathToken(value) {
   return String(value).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
+// KMA runs as ResFinder's read mode runs it (cgecore's CGEFinder.kma, as
+// run_resfinder.py calls it): -e 1.0 -apm p -cge -1t1, plus -bcNano -mp 20
+// -ont -md 5 for Nanopore reads. Only -ID differs: KMA keeps every template
+// down to a floor derived from the sliders, and the sliders themselves are
+// applied in the browser (thresholds.js) to Query_Identity and
+// Template_Coverage, so the coverage slider really is gene coverage.
+// (-mrc, which earlier builds set from that slider, is a per-read filter.)
 function buildConfigArgs(config) {
-  const args = [];
-  if (config.nanopore) args.push('-bcNano', '-mp', '20');
-  if (config.id_threshold != null) args.push('-ID', String(config.id_threshold * 100));
-  if (config.mrc != null) args.push('-mrc', String(config.mrc));
+  const args = ['-e', '1.0', '-apm', 'p', '-cge', '-1t1'];
+  if (config.nanopore) args.push('-bcNano', '-mp', '20', '-ont', '-md', '5');
+  args.push('-ID', String(kmaIdentityFloor(normaliseThresholds(config.thresholds))));
   return args;
 }
 

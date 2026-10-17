@@ -239,9 +239,9 @@ do once Memory64 made the heap large.
 ### Cross-origin isolation
 `SharedArrayBuffer` (and therefore the whole pthread/shared-memory module) only loads when
 the page is **cross-origin isolated** (`COOP: same-origin` + `COEP: require-corp`). The
-site is static, so [`coi-serviceworker.min.js`](../coi-serviceworker.min.js) (vendored at
-the repo root, loaded first in `index.html`) injects those headers via a service worker,
-reloading once on first visit. This works on `localhost` and any HTTPS static host
+production host sends those headers itself (`_headers` at the repo root); on any other
+static host `sw.js` (registered by `app.js`) adds them via a service worker, reloading
+once on first visit. This works on `localhost` and any HTTPS static host
 (Render, GitHub Pages). All app assets are same-origin (no Google Fonts, no off-site
 database), so the default `require-corp` mode is sufficient.
 

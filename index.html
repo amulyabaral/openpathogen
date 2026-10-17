@@ -3,11 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Cross-origin isolation (COOP/COEP) so SharedArrayBuffer is available for
-       KMA's threads + Memory64. The production host sends the headers itself
-       (dist/_headers); on any other static host this service worker injects
-       them and reloads the page once on first visit. Must run first. -->
-  <script src="coi-serviceworker.min.js"></script>
+  <!-- Cross-origin isolation (COOP/COEP), which KMA's threads need, comes
+       from the host's response headers (_headers). On any other static host
+       sw.js adds them and the page reloads once; the same worker keeps the
+       app and its engines for offline use. app.js registers it. -->
   <title>openpathogen: in-browser AMR and virulence gene detection</title>
   <meta name="description" content="Detect antimicrobial resistance and virulence genes in FASTQ reads, entirely in your browser. Free and open source, no installation, no data upload.">
   <meta name="robots" content="index, follow, max-image-preview:large">
@@ -30,7 +29,7 @@
   <meta name="twitter:image:alt" content="openpathogen: browser-based AMR and virulence gene detection. Reads never leave your machine.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="favicon.png">
-  <link rel="stylesheet" href="css/style.css?v=73">
+  <link rel="stylesheet" href="css/style.css?v=74">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -48,6 +47,7 @@
     "description": "Open-source web application that detects antimicrobial resistance and virulence genes in sequencing reads in the browser, with no installation and no data upload, and reports them by drug class with tested-resistance rates from the CABBAGE genotype-phenotype database.",
     "featureList": [
       "fastp quality control and adapter trimming",
+      "Human read removal with Deacon, on the device",
       "KMA read alignment compiled to WebAssembly",
       "AMR gene detection with ResFinder and CARD",
       "Virulence gene detection with VFDB",
@@ -55,19 +55,21 @@
       "CABBAGE tested-resistance rates for detected genes",
       "Per-gene coverage, consensus, alignment and variant viewer",
       "Public runs fetched by ENA/SRA accession",
+      "Results in the PHA4GE hAMRonization format",
       "Downloadable ZIP with the full KMA output"
     ],
     "image": "https://openpathogen.org/og.png",
     "screenshot": "https://openpathogen.org/og.png",
     "datePublished": "2026-08-25",
-    "dateModified": "2026-09-19",
+    "dateModified": "2026-09-26",
     "inLanguage": "en",
     "license": "https://github.com/amulyabaral/openpathogen/blob/main/LICENSE",
     "softwareHelp": { "@type": "CreativeWork", "url": "https://openpathogen.org/about.html" },
-    "keywords": "AMR detection, antimicrobial resistance genes, virulence genes, FASTQ, KMA, fastp, WebAssembly, bioinformatics, ResFinder, CARD, VFDB, CABBAGE, antibiotic resistance, pathogen profiling, genotype to phenotype",
+    "keywords": "AMR detection, antimicrobial resistance genes, virulence genes, FASTQ, KMA, fastp, Deacon, human read removal, host depletion, hAMRonization, WebAssembly, bioinformatics, ResFinder, CARD, VFDB, CABBAGE, antibiotic resistance, pathogen profiling, genotype to phenotype",
     "citation": [
       "Clausen PTLC, Aarestrup FM, Lund O. Rapid and precise alignment of raw reads against redundant databases with KMA. BMC Bioinformatics. 2018;19:307. https://doi.org/10.1186/s12859-018-2336-6",
       "Chen S, Zhou Y, Chen Y, Gu J. fastp: an ultra-fast all-in-one FASTQ preprocessor. Bioinformatics. 2018;34(17):i884-i890. https://doi.org/10.1093/bioinformatics/bty560",
+      "Constantinides B, Lees J, Crook DW. Deacon: fast sequence filtering and contaminant depletion. bioRxiv. 2025. https://doi.org/10.1101/2025.06.09.658732",
       "Dickens E, et al. A comprehensive AMR genotype-phenotype database (CABBAGE). Nucleic Acids Research. 2026. https://doi.org/10.1093/nar/gkag780"
     ],
     "sameAs": ["https://github.com/amulyabaral/openpathogen", "https://zenodo.org/records/22102687"]
@@ -91,12 +93,17 @@
       {
         "@type": "Question",
         "name": "What do the results contain?",
-        "acceptedAnswer": { "@type": "Answer", "text": "A report that groups the resistance genes by drug class and names the antibiotics they affect, lists the classes with no acquired gene, and summarises virulence factors. You can print it or save it as a PDF. Behind it: a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, and a ZIP with the full KMA output." }
+        "acceptedAnswer": { "@type": "Answer", "text": "A report that groups the resistance genes by drug class and names the antibiotics they affect, lists the classes with no acquired gene, and summarises virulence factors. You can print it or save it as a PDF. Behind it: a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, a ZIP with the full KMA output, and every gene hit in the PHA4GE hAMRonization format, which combines with the results of other AMR tools." }
+      },
+      {
+        "@type": "Question",
+        "name": "Can openpathogen remove human reads?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Yes. Tick Remove human reads and Deacon removes reads that match the human pangenome before the databases run, on your device. Its 239 MB index downloads once. The report says how many reads were removed, and the remaining reads can be downloaded. Deacon removes most human reads but not every one, so check the rules that apply before sharing them." }
       },
       {
         "@type": "Question",
         "name": "How do I cite openpathogen?",
-        "acceptedAnswer": { "@type": "Answer", "text": "A short communication is in preparation. Until then, cite KMA (doi:10.1186/s12859-018-2336-6), fastp (doi:10.1093/bioinformatics/bty560) and CABBAGE (doi:10.1093/nar/gkag780), and the databases you used." }
+        "acceptedAnswer": { "@type": "Answer", "text": "A short communication is in preparation. Until then, cite KMA (doi:10.1186/s12859-018-2336-6), fastp (doi:10.1093/bioinformatics/bty560) and CABBAGE (doi:10.1093/nar/gkag780), Deacon (doi:10.1101/2025.06.09.658732) if you removed human reads, and the databases you used." }
       }
     ]
   }
@@ -270,6 +277,21 @@
         </div>
       </div>
 
+      <div class="row row-top">
+        <span class="label" id="host-label">Human reads</span>
+        <div class="opt-group db-group">
+          <div class="db-list" role="group" aria-labelledby="host-label">
+            <label class="db-check" id="host-check">
+              <input type="checkbox" id="opt-host">
+              <span class="db-text"><span class="db-name">Remove human reads</span><span class="db-desc">with Deacon, before alignment</span></span>
+              <span class="db-size">239 MB</span>
+              <span class="db-prog" aria-hidden="true"><i></i></span>
+            </label>
+          </div>
+          <p class="opt-note">For samples with human DNA, such as swabs or clinical metagenomes. Reads that match the human pangenome are removed on this device, and the rest can be downloaded.</p>
+        </div>
+      </div>
+
       <div class="row row-top db-row">
         <span class="label" id="db-label">Databases</span>
         <div class="opt-group db-group">
@@ -299,14 +321,18 @@
 
       <div id="kma-options">
       <div class="row slider-row">
-        <label class="label" for="slider-id">Min identity</label>
+        <label class="label" for="slider-id" title="Identical bases over the aligned part of the gene">Min identity</label>
         <input type="range" id="slider-id" min="0" max="100" step="1" value="90">
         <span class="slider-val"><span id="slider-id-val">90</span>%</span>
       </div>
       <div class="row slider-row">
-        <label class="label" for="slider-cov">Min coverage</label>
+        <label class="label" for="slider-cov" title="Aligned part of the gene over its full length">Min coverage</label>
         <input type="range" id="slider-cov" min="0" max="100" step="1" value="60">
         <span class="slider-val"><span id="slider-cov-val">60</span>%</span>
+      </div>
+      <div class="row">
+        <span class="label"></span>
+        <p class="opt-note">Identity is measured over the aligned part of a gene and coverage over the gene's full length. A hit that reaches the identity threshold but not the coverage threshold is listed as a partial gene.</p>
       </div>
       </div><!-- /kma-options -->
 
@@ -349,9 +375,11 @@
         <dt>Which inputs are supported?</dt>
         <dd>Illumina paired-end, single-end and Oxford Nanopore reads in FASTQ, plain or gzipped. You can also fetch any public run by its SRA or ENA accession. Files up to 1 GB each are handled in memory.</dd>
         <dt>What do the results contain?</dt>
-        <dd>Resistance genes by drug class and names of the antibiotics they affect, a list of the classes with no acquired gene, and a summary of the virulence factors. You can print it or save it as a PDF. Ofcourse, you can also view the full results in the browser, including a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, and a ZIP with the full KMA output.</dd>
+        <dd>Resistance genes by drug class and names of the antibiotics they affect, a list of the classes with no acquired gene, and a summary of the virulence factors. You can print it or save it as a PDF. Ofcourse, you can also view the full results in the browser, including a gene table per database, a viewer per gene with coverage plot, consensus sequence, alignment and variants, the fastp reports, and a ZIP with the full KMA output. Every gene hit also downloads in the <a href="https://github.com/pha4ge/hAMRonization" target="_blank" rel="noopener">PHA4GE hAMRonization</a> format, which combines with the results of other AMR tools.</dd>
+        <dt>Can openpathogen remove human reads?</dt>
+        <dd>Yes. Tick <b>Remove human reads</b> and <a href="https://github.com/bede/deacon" target="_blank" rel="noopener">Deacon</a> removes reads that match the human pangenome before the databases run, on your device. Its 239 MB index downloads once. The report says how many reads were removed, and the remaining reads can be downloaded. Deacon removes most human reads but not every one, so check the rules that apply before sharing them.</dd>
         <dt>How do I cite openpathogen?</dt>
-        <dd>A short communication is in preparation. Until then, cite <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a>, <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> and <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">CABBAGE</a>, and the databases you used.</dd>
+        <dd>A short communication is in preparation. Until then, cite <a href="https://doi.org/10.1186/s12859-018-2336-6" target="_blank" rel="noopener">KMA</a>, <a href="https://doi.org/10.1093/bioinformatics/bty560" target="_blank" rel="noopener">fastp</a> and <a href="https://doi.org/10.1093/nar/gkag780" target="_blank" rel="noopener">CABBAGE</a>, <a href="https://doi.org/10.1101/2025.06.09.658732" target="_blank" rel="noopener">Deacon</a> if you removed human reads, and the databases you used.</dd>
       </dl>
       <footer class="site-footer">
         <a class="no-arrow" href="about.html">About and documentation</a>
@@ -367,7 +395,8 @@
         <button class="btn" id="btn-back" type="button">← Back to inputs</button>
         <div class="results-actions">
           <button class="btn btn-primary" id="btn-print" type="button">Print / save PDF</button>
-          <button class="btn" id="btn-zip" type="button" title="The KMA output files per database, the fastp reports, the CABBAGE rates as CSV and the run log.">Raw output (ZIP)</button>
+          <button class="btn" id="btn-hamr" type="button" title="Every gene hit in the PHA4GE hAMRonization format (TSV), which combines with other AMR tools' results, for example with hamronize summarize."><span class="seg-long">hAMRonization (TSV)</span><span class="seg-short">hAMRonization</span></button>
+          <button class="btn" id="btn-zip" type="button" title="The KMA output files per database, the hAMRonization report (TSV and JSON), the fastp and Deacon reports, the CABBAGE rates as CSV and the run log.">Raw output (ZIP)</button>
         </div>
       </div>
       <section id="results" class="results-block" aria-label="Results"></section>
@@ -387,7 +416,7 @@
 </div>
 
 <script src="js/vendor/fflate.min.js"></script>
-  <script type="module" src="js/app.js?v=65"></script>
+  <script type="module" src="js/app.js?v=66"></script>
 
 </body>
 </html>

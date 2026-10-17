@@ -22,7 +22,24 @@ in published work.
   Bioinformatics* 19: 307.
 - Full Apache 2.0 license text: https://www.apache.org/licenses/LICENSE-2.0
 
+### Deacon 0.18.0 (deacon-wasm) — MIT license
+- Source: https://github.com/bede/deacon (unmodified; built by
+  deacon/build.sh, see deacon/WASM_BUILD.md)
+- Human read removal by minimizer comparison with a host index. Its
+  minimizers come from SimdMinimizers (packed-seq, simd-minimizers; MIT).
+- Cite: Constantinides B., Lees J., Crook D.W. (2025). Deacon: fast sequence
+  filtering and contaminant depletion. *bioRxiv* 2025.06.09.658732.
+  Also: Groot Koerkamp R., Martayan I. (2025). SimdMinimizers: computing
+  random minimizers, fast. *bioRxiv* 2025.01.27.634998.
+
 ## Databases
+
+### Deacon panhuman-1 human index (k=31, w=61) — CC0 1.0
+- Source: https://github.com/bede/deacon-indexes (panhuman-1 workflow;
+  the w=15 build is Zenodo record 17288185). Built from HPRC year 1
+  assemblies, CHM13v2.0 and GRCh38.p14, minus minimizers shared with
+  FDA-ARGOS bacteria and RefSeq viruses. openpathogen ships it frozen into
+  a 16-bit binary fuse filter (deacon index freeze -b 16).
 
 ### ResFinder 2.6.0 — Apache License 2.0
 - Source: https://bitbucket.org/genomicepidemiology/resfinder_db
@@ -49,15 +66,31 @@ in published work.
   VFDB: a reference database for bacterial virulence factors. *Nucleic Acids
   Research* 33(S1): D325–D328.
 
+The KMA indexes built from these databases are derived works and carry the
+same terms, including the copies served from the Zenodo index record
+(https://zenodo.org/records/22102687). The record's own licence field does
+not extend CARD's or VFDB's terms; for commercial use, obtain a licence from
+McMaster University and the VFDB team.
+
+## Formats
+
+### hAMRonization — GNU LGPL v3
+- Source: https://github.com/pha4ge/hAMRonization
+- openpathogen writes its gene hits in the hAMRonization 1.3.1 format (the
+  PHA4GE AMR gene and variant specification). No hAMRonization code is
+  included; js/hamronize.js is an independent implementation of the format.
+
 ## Vendored JavaScript
 
 ### fflate — MIT license
 - Source: https://github.com/101arrowz/fflate
 - Decompression of downloaded database archives.
 
-### coi-serviceworker v0.1.7 — MIT license
-- Source: https://github.com/gzuidhof/coi-serviceworker
-- Cross-origin isolation headers via service worker.
+### plotly.js 1.2.0 — MIT license
+- Source: https://github.com/plotly/plotly.js (the minified build that
+  fastp's HTML report loads from opengene.org, served here from js/vendor/
+  instead so the report needs nothing beyond this site)
+- Copyright 2012-2015 Plotly, Inc. Draws the plots in the fastp quality report.
 
 ### CABBAGE (AMR genotype–phenotype database) — see data-source terms
 - Source: https://www.ebi.ac.uk/amr (EMBL-EBI Antimicrobial Resistance

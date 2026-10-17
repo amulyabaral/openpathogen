@@ -9,8 +9,18 @@ import { describeHit, describeFunction, cardAroUrl } from './genes.js';
 import { mountReport, DB_NAMES } from './report.js';
 import { ENGINE, WASM32_INPUT_WARN_BYTES } from './engine.js';
 import {
-  runComprehensive, setFastpLog, summariseQc, qcVerdict, fmtPct, COMPREHENSIVE_DBS,
+  runComprehensive, setFastpLog, summariseQc, qcVerdict, fmtPct, hostSummary, COMPREHENSIVE_DBS,
 } from './comprehensive.js';
+import { HOST_INDEX, isHostIndexCached, loadHostIndex } from './host.js';
+import { hamronizeResults, toTsv as hamronizedTsv, toJson as hamronizedJson } from './hamronize.js';
+import { classifyResult } from './hits.js';
+
+// This build, for the hAMRonization analysis_software_version: the ?v= of
+// app.js in index.html, bumped with every deploy.
+const APP_VERSION = (() => {
+  const v = new URL(import.meta.url).searchParams.get('v');
+  return v ? `v${v}` : 'dev';
+})();
 
 const state = {
   readType: 'paired',
@@ -21,6 +31,8 @@ const state = {
   speciesAuto: false, // true while that text came from run metadata, not the user
   selectedDbs: new Set(['resfinder']),
   dbCached: new Set(), // indexes already in the IndexedDB cache
+  removeHost: false,   // remove human reads (Deacon) before the databases
+  hostCached: false,   // the human index is in the IndexedDB cache
 };
 
 // The results on screen: files for the ZIP, the report (for species
@@ -51,6 +63,19 @@ const term = {
   },
 };
 
+// Service worker (sw.js): keeps the app and its engines for offline use and,
+// on hosts that do not send COOP/COEP themselves, adds those headers. A page
+// the worker did not serve is not cross-origin isolated, so it reloads once.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('sw.js').then(async () => {
+    await navigator.serviceWorker.ready;
+    if (window.crossOriginIsolated) return;
+    let reloaded = false;
+    try { reloaded = sessionStorage.getItem('op-sw-reloaded') === '1'; sessionStorage.setItem('op-sw-reloaded', '1'); } catch (_) {}
+    if (!reloaded) location.reload();
+  }).catch(() => { /* no worker: the page still works online where the host sends the headers */ });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   setupReadTypeToggle();
   setupUploadSlots();
@@ -71,6 +96,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('btn-print')?.addEventListener('click', () => window.print());
   document.getElementById('btn-zip')?.addEventListener('click', downloadZip);
+  document.getElementById('btn-hamr')?.addEventListener('click', downloadHamronized);
   document.getElementById('btn-clear-cache')?.addEventListener('click', clearCachedData);
   setupPrint();
   setupLogsToggle();
@@ -151,6 +177,7 @@ function setupRunOptions() {
     document.getElementById(id)?.addEventListener('change', refreshFastpPanel);
   }
   setupDbSelect();
+  setupHostOption();
   refreshFastpPanel();
 }
 
@@ -777,12 +804,73 @@ function renderDbUi() {
   });
 }
 
+// ── Human reads ──
+//
+// One checkbox, off by default. Ticking it downloads the Deacon human index
+// (239 MB) once, shown like a database row (size, progress, cached); a run
+// started meanwhile waits for the download.
+
+let hostDownload = null; // { pct, promise } while the index downloads
+
+function setupHostOption() {
+  const cb = document.getElementById('opt-host');
+  if (!cb) return;
+  cb.checked = state.removeHost;
+  cb.addEventListener('change', () => {
+    state.removeHost = cb.checked;
+    if (cb.checked) downloadHostIndex();
+    renderHostUi();
+  });
+  isHostIndexCached()
+    .then((cached) => { state.hostCached = cached; renderHostUi(); })
+    .catch(() => { /* cache check is best-effort */ });
+  renderHostUi();
+}
+
+function downloadHostIndex() {
+  if (hostDownload || state.hostCached) return;
+  const entry = { pct: null, promise: null };
+  hostDownload = entry;
+  term.push(`Downloading the human index for Deacon (${HOST_INDEX.size})…`, 'info');
+  entry.promise = loadHostIndex((got, total) => {
+    entry.pct = total ? Math.min(100, Math.round(100 * got / total)) : null;
+    renderHostUi();
+  }, (msg, level) => term.push(msg, level))
+    .then(async () => {
+      state.hostCached = await isHostIndexCached().catch(() => false);
+      term.push('Human index ready.', 'ok');
+    })
+    .catch((err) => {
+      term.push(`Could not download the human index: ${err.message}`, 'error');
+    })
+    .finally(() => {
+      hostDownload = null;
+      renderHostUi();
+    });
+  renderHostUi();
+}
+
+function renderHostUi() {
+  const row = document.getElementById('host-check');
+  if (!row) return;
+  const sizeEl = row.querySelector('.db-size');
+  const bar = row.querySelector('.db-prog > i');
+  row.classList.toggle('downloading', !!hostDownload);
+  if (hostDownload) {
+    if (sizeEl) sizeEl.textContent = dlStatus(hostDownload);
+    if (bar) bar.style.width = (hostDownload.pct || 3) + '%';
+  } else {
+    if (sizeEl) sizeEl.textContent = HOST_INDEX.size + (state.hostCached ? ' · cached' : '');
+    if (bar) bar.style.width = '0';
+  }
+}
+
 // ── Clear cached data ──
 //
-// Wipes the IndexedDB cache: database indexes, CABBAGE snapshots, the example
-// isolate and any fetched public runs. Uploaded files are never persisted, so
-// there is nothing else to remove. Data already loaded into memory this
-// session keeps working until the page is reloaded.
+// Wipes the IndexedDB cache: database indexes, the human index, CABBAGE
+// snapshots, the example isolate and any fetched public runs. Uploaded files
+// are never persisted, so there is nothing else to remove. Data already
+// loaded into memory this session keeps working until the page is reloaded.
 async function clearCachedData() {
   if (state.running) return;
   const btn = document.getElementById('btn-clear-cache');
@@ -791,8 +879,10 @@ async function clearCachedData() {
   try {
     const n = await clearDBCache();
     state.dbCached.clear();
+    state.hostCached = false;
     renderDbUi();
-    term.push(`Cleared ${n} cached item${n === 1 ? '' : 's'} from this browser: database indexes, CABBAGE snapshots and any example or fetched-run reads.`, 'ok');
+    renderHostUi();
+    term.push(`Cleared ${n} cached item${n === 1 ? '' : 's'} from this browser: database indexes, the human index, CABBAGE snapshots and any example or fetched-run reads.`, 'ok');
     term.push('Selected databases download again the next time they are used. Nothing was uploaded; the cache was only on this device.', 'info');
   } catch (err) {
     term.push('Could not clear the cache: ' + err.message, 'error');
@@ -807,9 +897,10 @@ async function clearCachedData() {
 // Any SRR/ERR/DRR run accession. ENA is queried first for run metadata
 // (organism, platform, layout, file sizes); the read type and species are
 // set from that metadata and the run is described to the user before the
-// FASTQs download. Files are capped at 1 GB each (see fetch-run.js).
-// Downloaded runs are cached in IndexedDB, so fetching the same run again
-// is instant.
+// FASTQs download. The R1/R2 pair is matched by file name (_1, _2); a file
+// of unpaired reads ENA lists beside the pair is skipped (fetch-run.js).
+// Files are capped at 1 GB each. Downloaded runs are cached in IndexedDB,
+// so fetching the same run again is instant.
 
 const PLATFORM_LABELS = {
   ILLUMINA: 'Illumina',
@@ -848,10 +939,15 @@ async function doFetchRun() {
     setReadType(run.readType, `${kind[0].toUpperCase() + kind.slice(1)}, from the ENA run record.`);
     setSpecies(await speciesFromOrganism(run.organism), true);
     showUploadNote('');
+    if (run.listedLayout === 'paired' && run.layout !== 'paired' && run.readType !== 'nanopore') {
+      term.push('ENA lists this run as paired-end, but its files are not an R1/R2 pair (_1 and _2), so it runs as single-end.', 'warn');
+    }
+    if (run.skipped.length) {
+      term.push(`ENA also lists ${run.skipped.map(f => f.name).join(' and ')} (reads without a mate); not used.`, 'info');
+    }
     term.push(`Downloading ${run.files.length} FASTQ file${run.files.length === 1 ? '' : 's'} from ENA…`, 'info');
-    for (let i = 0; i < run.files.length; i++) {
-      const spec = run.files[i];
-      const slot = (run.layout === 'paired' && i === 1) ? 'r2' : 'r1';
+    for (const spec of run.files) {
+      const slot = spec.slot;
       const cacheKey = 'run:' + spec.name;
       let data = await getCachedDBFile(cacheKey);
       if (data && data.byteLength) {
@@ -895,30 +991,41 @@ async function doRun() {
 
   try {
     const statusText = document.querySelector('#run-status .run-status-text');
+    let stepPrefix = '';
     const onStep = (i, n, text) => {
-      if (statusText) statusText.textContent = `Step ${i} of ${n}: ${text}`;
+      stepPrefix = `Step ${i} of ${n}: `;
+      if (statusText) statusText.textContent = stepPrefix + text;
       term.push(`[${i}/${n}] ${text}`, 'progress');
     };
     setFastpLog((t) => term.push(t, 'info'));
     const runQc = document.getElementById('opt-fastp').checked;
     const fastpOptions = runQc ? collectFastpOptions() : undefined;
+    // Identity over the aligned part and coverage of the gene, applied to
+    // KMA's output in the browser (thresholds.js).
     const thresholds = {
-      id_threshold: parseInt(document.getElementById('slider-id').value) / 100,
-      mrc: parseInt(document.getElementById('slider-cov').value) / 100,
+      identity: parseInt(document.getElementById('slider-id').value) / 100,
+      coverage: parseInt(document.getElementById('slider-cov').value) / 100,
     };
     // A database selected moments ago may still be downloading; wait for it
     // instead of fetching the same index a second time in parallel.
+    const removeHost = state.removeHost;
     const pending = selectedDbs().map(k => DB_DOWNLOADS.get(k)).filter(Boolean);
+    if (removeHost && hostDownload) pending.push(hostDownload);
     if (pending.length) {
       if (statusText) statusText.textContent = 'Waiting for the database download to finish…';
       term.push('Waiting for the index download to finish…', 'info');
       await Promise.all(pending.map(p => p.promise));
     }
+    const inputNames = files.map(f => f.name);
     const result = await runComprehensive(files, state.readType, {
-      onStep, runQc, dbKeys: selectedDbs(), thresholds, fastpOptions,
+      onStep, runQc, removeHost, dbKeys: selectedDbs(), thresholds, fastpOptions,
+      sampleName: sampleNameOf(inputNames),
+      log: (msg, level) => term.push(msg, level),
+      // Progress within a step shows in the status line only, not the log.
+      onProgress: (text) => { if (statusText) statusText.textContent = stepPrefix + text; },
     });
     renderComprehensive(result, {
-      runQc, thresholds, readType: state.readType, inputNames: files.map(f => f.name),
+      runQc, removeHost, thresholds, readType: state.readType, inputNames,
     });
     document.getElementById('workspace').classList.add('show-results');
     window.scrollTo(0, 0); // stacked (phone) layout: results start at the top
@@ -941,29 +1048,37 @@ function sampleNameOf(names) {
 }
 
 // Results page: the report first, then one collapsible gene table per
-// database and the fastp card. The toolbar prints the page or downloads the
-// raw output as a ZIP.
-function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc, thresholds, readType, inputNames }) {
+// database, the fastp card and the Deacon card. The toolbar prints the page,
+// downloads the hAMRonized TSV, or downloads the raw output as a ZIP.
+function renderComprehensive({ qc, qcHtml, qcReads, host, results }, { runQc, removeHost, thresholds, readType, inputNames }) {
   const area = document.getElementById('results');
   const metrics = summariseQc(qc);
   const verdict = qcVerdict(metrics);
   const sampleName = sampleNameOf(inputNames);
+  const hostRan = !!host?.stats;
 
   let html = '<div id="report"></div><div class="evidence">';
 
-  // ── One gene table per database ──
+  // ── One gene table per database: called hits, then partial ones. Hits
+  //    below the thresholds, and partial hits shadowed by a called allele of
+  //    the same gene, stay in the ZIP (hits.js). ──
   results.forEach((r, i) => {
     const ok = r.exitCode === 0;
-    const rows = ok && r.resTable ? parseResFile(r.resTable).rows : [];
+    const { called, partial, below, shadowed } = classifyResult(r, thresholds);
     const name = DB_NAMES[r.database] || r.dbLabel || r.database;
-    const meta = !ok ? 'failed' : `${rows.length} gene${rows.length === 1 ? '' : 's'}`;
+    const meta = !ok ? 'failed'
+      : `${called.length} gene${called.length === 1 ? '' : 's'}${partial.length ? `, ${partial.length} partial` : ''}`;
+    const hidden = below + shadowed;
+    const belowNote = hidden
+      ? `<p class="opt-note">${hidden} more hit${hidden === 1 ? '' : 's'} ${hidden === 1 ? 'is' : 'are'} in the ZIP (${esc(r.database)}.res) and not shown: below the thresholds${shadowed ? ', or a partial match to an allele of a gene called above' : ''}.</p>`
+      : '';
     html += `
     <details class="ev comp-section" data-section="${i}"${ok ? '' : ' open'}>
       <summary><span class="ev-name">Gene table · ${esc(name)}</span><span class="ev-meta${ok ? '' : ' ev-failed'}">${meta}</span></summary>
       <div class="ev-body">
         ${!ok ? '<p class="empty">This step failed. Open the Logs panel below for details.</p>'
-          : rows.length ? renderResTable(rows, r.database)
-          : '<p class="empty">No genes detected.</p>'}
+          : (called.length || partial.length) ? renderResTable(called, partial, r) + belowNote
+          : '<p class="empty">No genes detected.</p>' + belowNote}
       </div>
     </details>`;
   });
@@ -995,7 +1110,39 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc, threshol
           ${qc ? '<button class="qc-dl-btn" type="button" data-qc-dl="json">report.json ↓</button>' : ''}
           ${readBtns}
         </div>
-        <p class="opt-note">Clean reads are the trimmed FASTQs the databases were run against, covering the whole sample. report.json records the exact fastp command and every filtering statistic.</p>` : ''}
+        <p class="opt-note">${hostRan
+          ? 'Clean reads are the trimmed FASTQs, before human reads were removed.'
+          : 'Clean reads are the trimmed FASTQs the databases were run against, covering the whole sample.'} report.json records the exact fastp command and every filtering statistic.</p>` : ''}
+      </div>
+    </details>`;
+  }
+
+  // ── Human read removal card (only when it was part of the run) ──
+  if (removeHost) {
+    const s = host?.stats;
+    const removed = s ? s.readsIn - s.readsOut : 0;
+    const frac = s?.readsIn ? removed / s.readsIn : 0;
+    const readBtns = (host?.reads || [])
+      .map((f, i, all) => `<button class="qc-dl-btn" type="button" data-host-dl="read-${i}">${all.length > 1 ? `R${i + 1}` : 'Reads'} without human reads ↓ ${formatBytes(f.size)}</button>`)
+      .join('');
+    html += `
+    <details class="ev ev-qc ev-host">
+      <summary><span class="ev-name">Human reads · Deacon</span><span class="ev-meta${s ? '' : ' ev-failed'}">${s ? `${fmtPct(frac)} of reads removed` : 'failed'}</span></summary>
+      <div class="ev-body">
+        ${s ? `
+        <div class="qc-grid">
+          <div class="qc-cell"><span class="qc-val">${fmtCount(s.readsIn)}</span><span class="qc-key">reads in</span></div>
+          <div class="qc-cell"><span class="qc-val">${fmtCount(removed)}</span><span class="qc-key">human reads removed</span></div>
+          <div class="qc-cell"><span class="qc-val">${fmtPct(frac)}</span><span class="qc-key">of reads human</span></div>
+          <div class="qc-cell"><span class="qc-val">${fmtCount(s.readsOut)}</span><span class="qc-key">reads analyzed</span></div>
+        </div>
+        <div class="qc-dl">
+          <span class="qc-dl-label">Deacon output</span>
+          ${readBtns}
+          <button class="qc-dl-btn" type="button" data-host-dl="summary">deacon_summary.json ↓</button>
+        </div>
+        <p class="opt-note">A read counts as human when at least 2 of its minimizers, and 1% of them, are in the human pangenome index. Paired reads are judged and removed together. The databases were run on the remaining reads.</p>` : `
+        <p class="qc-verdict qc-warn">Human read removal failed (${esc(host?.error || 'unknown error')}). The databases were run on all reads.</p>`}
       </div>
     </details>`;
   }
@@ -1010,15 +1157,36 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc, threshol
   if (qcHtml) {
     dlFiles['fastp_report.html'] = { data: new TextEncoder().encode(qcHtml), binary: true };
   }
+  const deaconSummary = hostSummary(host);
+  if (deaconSummary) {
+    dlFiles['deacon_summary.json'] = { data: JSON.stringify(deaconSummary, null, 2) + '\n', binary: false };
+  }
   for (const r of results) {
     for (const [ext, info] of Object.entries(r.files || {})) {
       dlFiles[`${r.database}${ext}`] = info;
     }
   }
+  // Every called gene in the hAMRonization format, for combining with other
+  // tools' results (hamronize summarize).
+  const hamronized = hamronizeResults(results, { sample: sampleName, version: APP_VERSION, thresholds });
+  const hamronizedTsvText = hamronizedTsv(hamronized);
+  dlFiles['hamronized_report.tsv'] = { data: hamronizedTsvText, binary: false };
+  dlFiles['hamronized_report.json'] = { data: hamronizedJson(hamronized), binary: false };
   dlFiles['openpathogen_run.log'] = { data: term.text(), binary: false };
 
   area.innerHTML = html;
-  current = { dlFiles, sampleName, report: null };
+  current = { dlFiles, sampleName, report: null, hamronizedTsv: hamronizedTsvText };
+
+  // Deacon card: the reads without human reads, and the run summary.
+  area.querySelector('.ev-host .qc-dl')?.addEventListener('click', (e) => {
+    const kind = e.target.closest('[data-host-dl]')?.dataset.hostDl;
+    if (kind === 'summary' && deaconSummary) {
+      download(new Blob([dlFiles['deacon_summary.json'].data], { type: 'application/json' }), 'deacon_summary.json');
+    } else if (kind?.startsWith('read-')) {
+      const f = (host?.reads || [])[Number(kind.slice(5))];
+      if (f) download(f, f.name);
+    }
+  });
 
   // Per-artifact fastp downloads on the QC card. The HTML report is
   // self-contained (inline CSS/JS + data), so it can be viewed in a new
@@ -1030,9 +1198,7 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc, threshol
       if (!btn) return;
       const kind = btn.dataset.qcDl;
       if (kind === 'view' && qcHtml) {
-        const url = URL.createObjectURL(new Blob([qcHtml], { type: 'text/html' }));
-        window.open(url, '_blank', 'noopener');
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        openHtmlReport(qcHtml);
       } else if (kind === 'html' && qcHtml) {
         download(new Blob([qcHtml], { type: 'text/html' }), 'fastp_report.html');
       } else if (kind === 'json' && qc) {
@@ -1053,6 +1219,7 @@ function renderComprehensive({ qc, qcHtml, qcReads, results }, { runQc, threshol
   current.report = mountReport(area.querySelector('#report'), {
     results, readType, inputNames, sampleName, thresholds,
     qc: runQc ? { tone: verdict.tone, text: verdict.text } : null,
+    host: removeHost ? { stats: host?.stats || null, error: host?.error || null } : null,
     species: state.species,
     onSpeciesChange: (text) => setSpecies(text, false),
     onCsv: (name, text) => {
@@ -1104,6 +1271,13 @@ function downloadZip() {
       : enc.encode(info.data);
   }
   download(new Blob([window.fflate.zipSync(zip)], { type: 'application/zip' }), 'openpathogen_results.zip');
+}
+
+// The hAMRonized TSV on its own, named for the sample, so the files of
+// several runs can go straight into `hamronize summarize`.
+function downloadHamronized() {
+  if (!current) return;
+  download(new Blob([current.hamronizedTsv], { type: 'text/tab-separated-values' }), `${current.sampleName}_hamronized.tsv`);
 }
 
 // Printing (the toolbar button or the browser's own Print) lays out the
@@ -1176,25 +1350,31 @@ const fmtNum = (v, digits, suffix) => {
   return Number.isFinite(x) ? x.toFixed(digits) + suffix : '';
 };
 
-// Gene | what it does | identity | coverage | depth. The raw template name
-// is the gene button's tooltip and the gene viewer's subtitle.
-function renderResTable(rows, db) {
+// Gene | what it does | identity | coverage | depth. Called hits first, then
+// partial ones (identity reached, coverage not). Identity is over the
+// aligned part of the gene (KMA's Query_Identity), coverage over its full
+// length. A called gene whose alignment has a missing or poorly aligned
+// stretch is marked "check alignment". The raw template name is the gene
+// button's tooltip and the gene viewer's subtitle.
+function renderResTable(called, partial, result) {
+  const db = result.database;
   const cols = [
-    { key: 'gene', label: 'Gene', width: 150 },
+    { key: 'gene', label: 'Gene', width: 170 },
     { key: 'fn', label: db === 'vfdb_core' ? 'Virulence factor' : 'Drug class and antibiotics' },
-    { key: 'id', label: 'Identity', width: 96 },
-    { key: 'cov', label: 'Coverage', width: 104 },
+    { key: 'id', label: 'Identity', width: 96, title: 'Identical bases over the aligned part of the gene (KMA Query_Identity)' },
+    { key: 'cov', label: 'Coverage', width: 104, title: 'Aligned part of the gene over its full length (KMA Template_Coverage)' },
     { key: 'depth', label: 'Depth', width: 84 },
   ];
   let html = '<div class="table-wrap"><table class="res-table"><colgroup>';
   for (const c of cols) html += c.width ? `<col style="width:${c.width}px">` : '<col>';
   html += '</colgroup><thead><tr>';
   for (const c of cols) {
-    html += `<th data-key="${c.key}" aria-sort="none"><button type="button" class="th-sort">${esc(c.label)}<span class="arr" aria-hidden="true">↕</span></button></th>`;
+    html += `<th data-key="${c.key}" aria-sort="none"${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="th-sort">${esc(c.label)}<span class="arr" aria-hidden="true">↕</span></button></th>`;
   }
   html += '</tr></thead><tbody>';
 
-  for (const row of rows) {
+  for (const h of [...called, ...partial]) {
+    const { row, status } = h;
     const hit = describeHit(row.Template, db, row);
     let fn = esc(describeFunction(hit));
     if (db === 'card_homolog') {
@@ -1202,14 +1382,21 @@ function renderResTable(rows, db) {
       const url = cardAroUrl(hit.aro);
       if (url) fn += ` · <a href="${url}" target="_blank" rel="noopener">ARO:${esc(hit.aro)}</a>`;
     }
+    const warning = status === 'called' ? h.warning : null;
+    const partialTitle = h.by === 'alignment'
+      ? `Only part of the gene aligns well: ${Math.round(100 * (h.check?.goodFraction || 0))}% at ${(100 * (h.check?.goodIdentity || 0)).toFixed(1)}% identity. ${h.warning || ''}`
+      : 'Found at the identity threshold, but covering less of the gene than the coverage threshold asks';
+    const marks = (status === 'partial'
+      ? ` <span class="rep-tag rep-tag-muted" title="${esc(partialTitle)}">partial</span>` : '')
+      + (warning ? ` <span class="rep-tag rep-tag-warn" title="${esc(warning)} Open the gene to see the alignment.">check alignment</span>` : '');
     const cells = {
-      gene: [hit.name, `<button type="button" class="gv-link" title="${esc(row.Template)}">${esc(hit.name)}</button>`],
+      gene: [hit.name, `<button type="button" class="gv-link" title="${esc(row.Template)}">${esc(hit.name)}</button>${marks}`],
       fn: [describeFunction(hit), fn],
-      id: [row.Template_Identity, fmtNum(row.Template_Identity, 1, '%')],
+      id: [row.Query_Identity, fmtNum(row.Query_Identity, 1, '%')],
       cov: [row.Template_Coverage, fmtNum(row.Template_Coverage, 1, '%')],
       depth: [row.Depth, fmtNum(row.Depth, 1, '×')],
     };
-    html += `<tr data-template="${esc(row.Template || '')}">`;
+    html += `<tr data-template="${esc(row.Template || '')}"${status === 'partial' ? ' class="row-partial"' : ''}>`;
     for (const c of cols) {
       const [v, inner] = cells[c.key];
       html += `<td data-k="${c.key}" data-v="${esc(v || '')}"${c.key === 'fn' ? ' class="fn"' : ''}>${inner}</td>`;
@@ -1287,6 +1474,34 @@ function bindColumnResize(area) {
     // A click on the handle must not sort the column.
     handle.addEventListener('click', (e) => e.stopPropagation());
   });
+}
+
+// Opens an HTML report (fastp's) in a new tab. Through the service worker it
+// gets a URL of its own, served with a policy that lets its inline scripts
+// and plotting library run (sw.js); without a worker, a blob URL.
+async function openHtmlReport(html) {
+  // fastp's report loads Plotly from opengene.org over plain http (blocked
+  // on an https page) with cdn.plot.ly as a fallback; both are swapped for
+  // the vendored copy, so the report needs nothing beyond this origin.
+  html = html.replace(/https?:\/\/(?:opengene\.org|cdn\.plot\.ly)\/plotly-1\.2\.0\.min\.js/g,
+    new URL('js/vendor/plotly-1.2.0.min.js', document.baseURI).href);
+  const sw = navigator.serviceWorker?.controller;
+  if (sw) {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    const stored = await new Promise((resolve) => {
+      const ch = new MessageChannel();
+      const timer = setTimeout(() => resolve(false), 3000);
+      ch.port1.onmessage = (e) => { clearTimeout(timer); resolve(e.data?.ok === true); };
+      try { sw.postMessage({ type: 'store-report', id, html }, [ch.port2]); } catch (_) { clearTimeout(timer); resolve(false); }
+    });
+    if (stored) {
+      window.open(`reports/${id}.html`, '_blank', 'noopener');
+      return;
+    }
+  }
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function download(blob, name) {

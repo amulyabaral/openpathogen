@@ -3,11 +3,15 @@
  * doi:10.1093/nar/gkag780), served client-side from a snapshot of the
  * EMBL-EBI AMR portal at a pinned release.
  *
- * The report uses one thing from it: for a detected gene, how often isolates
- * of the same species carrying that gene tested resistant to the antibiotics
- * the gene acts on. The association table behind this was precomputed by
- * scripts/build-cabbage.py (the genotypes and phenotypes views joined on the
- * isolate); each row is (species, gene, antibiotic, R, I, S). Genes are
+ * The report uses two things from it: for a detected gene, how often
+ * isolates of the same species carrying that gene tested resistant to the
+ * antibiotics the gene acts on, and, for comparison, how often all
+ * sequenced isolates of the species did. The association table behind this
+ * was precomputed by scripts/build-cabbage.py (the genotypes and phenotypes
+ * views joined on the isolate); each row is (species, gene, antibiotic, R,
+ * I, S), with the species background alongside. Phenotypes are read under
+ * two breakpoint standards (CLSI 2025 first or EUCAST 2025 first, each
+ * falling back to the other), as one table per standard. Genes are
  * AMRFinderPlus element symbols, each with the antibiotics the portal links
  * it to.
  *
@@ -91,9 +95,36 @@ async function fetchSnapshotBytes(file, expectedBytes, onProgress) {
 
 // ── Association table ──
 
+// The breakpoint standards a snapshot can hold (version 3), in the order
+// the report offers them. Version 2 snapshots hold the CLSI-first table only.
+export const STANDARDS = {
+  clsi: { label: 'CLSI 2025', detail: 'CLSI 2025 breakpoints, EUCAST where CLSI has none' },
+  eucast: { label: 'EUCAST 2025', detail: 'EUCAST 2025 breakpoints, CLSI where EUCAST has none' },
+};
+export const DEFAULT_STANDARD = 'clsi';
+
+// One standard's tables: "species\x00gene" -> rows, and the species
+// background ("species\x00antibiotic" -> {r, i, s, n}) over all AST isolates
+// and over the AST isolates that also have a genome.
+function indexTable(t) {
+  const bySpeciesGene = new Map();
+  for (const row of t.rows || []) {
+    const key = row.species + '\x00' + row.gene;
+    let list = bySpeciesGene.get(key);
+    if (!list) bySpeciesGene.set(key, list = []);
+    list.push(row);
+  }
+  const bg = (list) => {
+    const m = new Map();
+    for (const r of list || []) m.set(r.species + '\x00' + String(r.antibiotic).toLowerCase(), { r: r.r, i: r.i, s: r.s, n: r.r + r.i + r.s });
+    return m;
+  };
+  return { bySpeciesGene, background: bg(t.background), backgroundSeq: bg(t.background_seq) };
+}
+
 let associationsPromise = null;
 
-// Loads once per session (about 190 KB). Concurrent callers share the load.
+// Loads once per session (about 400 KB). Concurrent callers share the load.
 export function loadAssociations() {
   if (!associationsPromise) {
     associationsPromise = (async () => {
@@ -101,16 +132,18 @@ export function loadAssociations() {
       try { expectedBytes = (await getManifest()).associations?.bytes || 0; } catch (_) {}
       const gz = await fetchSnapshotBytes('associations.json.gz', expectedBytes);
       const parsed = JSON.parse(window.fflate.strFromU8(window.fflate.gunzipSync(gz)));
-      // Lookup: "species\x00gene" -> rows.
-      const bySpeciesGene = new Map();
+      const raw = parsed.standards || { [DEFAULT_STANDARD]: parsed };
+      const tables = {};
+      const keys = new Set();
       const speciesSet = new Set();
-      for (const row of parsed.rows) {
-        speciesSet.add(row.species);
-        const key = row.species + '\x00' + row.gene;
-        let list = bySpeciesGene.get(key);
-        if (!list) bySpeciesGene.set(key, list = []);
-        list.push(row);
+      for (const [std, t] of Object.entries(raw)) {
+        tables[std] = indexTable(t);
+        for (const k of tables[std].bySpeciesGene.keys()) {
+          keys.add(k);
+          speciesSet.add(k.slice(0, k.indexOf('\x00')));
+        }
       }
+      const standards = Object.keys(tables);
       const genes = new Map();
       for (const g of parsed.genes || []) {
         genes.set(g.gene, { symbol: g.symbol || g.gene, cls: g.class || '', links: new Set(g.links || []) });
@@ -118,7 +151,10 @@ export function loadAssociations() {
       return {
         minN: parsed.min_n || 20,
         species: parsed.species.filter(s => speciesSet.has(s)),
-        bySpeciesGene,
+        tables,
+        standards,
+        defaultStandard: standards.includes(DEFAULT_STANDARD) ? DEFAULT_STANDARD : standards[0],
+        keys,
         genes,
         keyIndex: new Map(),
       };
@@ -126,6 +162,16 @@ export function loadAssociations() {
     associationsPromise.catch(() => { associationsPromise = null; });
   }
   return associationsPromise;
+}
+
+export function tableOf(assoc, standard) {
+  return assoc.tables[standard] || assoc.tables[assoc.defaultStandard];
+}
+
+// The species' own rate for an antibiotic among sequenced isolates with an
+// AST result, or null.
+export function backgroundRate(assoc, species, antibiotic, standard) {
+  return tableOf(assoc, standard).backgroundSeq.get(species + '\x00' + cabbageName(antibiotic)) || null;
 }
 
 // ── Matching detected genes to CABBAGE symbols ──
@@ -191,7 +237,7 @@ function speciesIndex(assoc, species) {
     if (!l) idx.set(k, l = []);
     if (!l.includes(g)) l.push(g);
   };
-  for (const key of assoc.bySpeciesGene.keys()) {
+  for (const key of assoc.keys) {
     if (!key.startsWith(prefix)) continue;
     const g = key.slice(prefix.length);
     reg(g.toLowerCase(), g);
@@ -205,7 +251,7 @@ function speciesIndex(assoc, species) {
 }
 
 function evidence(assoc, species, gene) {
-  return (assoc.bySpeciesGene.get(species + '\x00' + gene) || [])
+  return (tableOf(assoc, assoc.defaultStandard).bySpeciesGene.get(species + '\x00' + gene) || [])
     .reduce((n, r) => Math.max(n, r.r + r.i + r.s), 0);
 }
 
@@ -245,22 +291,31 @@ const isDrugLink = (l) => !!antibioticClasses(l) || String(l).toLowerCase() === 
 // methicillin under blaZ and ceftazidime-avibactam under CTX-M-15, rates that
 // come from other genes the same isolates carry. names: the gene's names,
 // tried in order. Drug-linked antibiotics come first (mecA: methicillin,
-// ceftaroline), then by number of isolates tested.
-export function linkedEvidence(assoc, species, names, resfinderAntibiotics) {
+// ceftaroline), then by number of isolates tested. Each row carries the
+// species background for the same antibiotic (all sequenced isolates with
+// an AST result), so a rate can be read against what the species does
+// anyway. standard picks the breakpoint table (STANDARDS).
+export function linkedEvidence(assoc, species, names, resfinderAntibiotics, standard = assoc.defaultStandard) {
   const minN = assoc.minN || 20;
   const listed = new Set((resfinderAntibiotics || []).map(cabbageName));
+  const table = tableOf(assoc, standard);
   for (const name of names) {
     const matched = matchAssociationGene(assoc, species, name);
     if (!matched) continue;
     const info = geneInfo(assoc, matched);
     const drugLinks = [...info.links].filter(isDrugLink);
     const rows = [];
-    for (const r of assoc.bySpeciesGene.get(species + '\x00' + matched) || []) {
+    for (const r of table.bySpeciesGene.get(species + '\x00' + matched) || []) {
       const n = r.r + r.i + r.s;
       if (n < minN) continue;
       const ab = r.antibiotic.toLowerCase();
       const linked = drugLinks.some(l => linkedAntibiotics(l).has(ab));
-      if (linked || listed.has(ab)) rows.push({ antibiotic: r.antibiotic, r: r.r, i: r.i, s: r.s, n, linked });
+      if (linked || listed.has(ab)) {
+        rows.push({
+          antibiotic: r.antibiotic, r: r.r, i: r.i, s: r.s, n, linked,
+          background: table.backgroundSeq.get(species + '\x00' + ab) || null,
+        });
+      }
     }
     rows.sort((a, b) => b.linked - a.linked || b.n - a.n);
     return { symbol: info.symbol, detectedAs: name, rows };

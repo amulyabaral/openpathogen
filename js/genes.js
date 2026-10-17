@@ -191,10 +191,13 @@ export function matchCardToResfinder(cardName) {
 
 // ── Hit description ──
 
-// Caveats ResFinder records in its Notes column that change what a hit means.
+// Caveats ResFinder records in its Notes column that change what a hit
+// means, including the conditions some phenotypes carry ("Phenotype
+// described in Acinetobacter baumannii if simultaneous presence of
+// insertion sequence ISAba1").
 function caveats(notes) {
   const out = [];
-  for (const m of String(notes || '').matchAll(/(Natural in [^,;]+|Not functional in [^,;]+|Chromosomal[^,;]*)/gi)) {
+  for (const m of String(notes || '').matchAll(/(Natural in [^,;]+|Not functional in [^,;]+|Chromosomal[^,;]*|Phenotype described in [^;]+)/gi)) {
     const t = m[1].trim().replace(/\.$/, '');
     if (!out.includes(t)) out.push(t);
   }
@@ -202,6 +205,46 @@ function caveats(notes) {
 }
 
 const MEC = /^mec[abc]$/i;
+
+// Genus and species epithet of a name as people and ResFinder write it:
+// "Acinetobacter baumannii ATCC 17978", "A. baumannii", "Acinetobacter",
+// "different Mycobacterium sp." An abbreviated genus keeps its initial only.
+export function parseTaxon(text) {
+  const toks = String(text || '').trim().replace(/^different\s+/i, '').split(/\s+/).filter(Boolean);
+  if (!toks.length) return null;
+  const first = toks[0];
+  if (!/^[A-Za-z]+\.?$/.test(first)) return null;
+  const abbreviated = /^[A-Za-z]\.$/.test(first);
+  const second = (toks[1] || '').toLowerCase().replace(/[^a-z-]/g, '');
+  return {
+    genus: abbreviated ? null : first.toLowerCase(),
+    initial: first[0].toLowerCase(),
+    epithet: second && !/^spp?$/.test(second) ? second : null,
+  };
+}
+
+// True when the sample's species is the taxon a note names: the same genus
+// (by initial when either is abbreviated) and, when the note gives one, the
+// same species.
+export function taxonMatches(sample, target) {
+  if (!sample || !target) return false;
+  const genusSame = sample.genus && target.genus ? sample.genus === target.genus : sample.initial === target.initial;
+  if (!genusSame) return false;
+  return !target.epithet || target.epithet === sample.epithet;
+}
+
+// The caveat that makes a gene part of the species' normal genome ("Natural
+// in Acinetobacter baumannii", "Chromosomal in Acinetobacter"), or null.
+// "Not functional in …" is a different caveat and stays a plain note.
+export function intrinsicNote(notes, species) {
+  const sample = parseTaxon(species);
+  if (!sample) return null;
+  for (const n of notes || []) {
+    const m = String(n).match(/^(?:Natural|Chromosomal) in (.+)$/i);
+    if (m && taxonMatches(sample, parseTaxon(m[1]))) return n;
+  }
+  return null;
+}
 
 // A short mechanism label for well-known gene types, from the ResFinder
 // spectrum and Ambler class. Neutral wording: it names the enzyme type.

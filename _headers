@@ -1,0 +1,19 @@
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; worker-src 'self' blob:; connect-src 'self' https://zenodo.org https://www.ebi.ac.uk https://ftp.sra.ebi.ac.uk https://cloudflareinsights.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+/js/*
+  Cache-Control: no-cache
+/css/*
+  Cache-Control: no-cache
+/kma/*
+  Cache-Control: no-cache
+/fastp/*
+  Cache-Control: no-cache
+/deacon/*
+  Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache

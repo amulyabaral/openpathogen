@@ -478,6 +478,7 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
   .ev .res-table col:nth-child(5){width:72px!important}
   .results-actions{width:100%}
   .results-actions .btn{flex:1 1 0;justify-content:center}
+  .results-actions .btn-primary{flex-basis:100%}
   .fp-field input[type=text]{min-width:0;width:100%}
   .gv-overlay{padding:16px 8px}
   .gv-stats{gap:8px 14px}
@@ -506,3 +507,17 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
   a::after{content:none!important}
   a{text-decoration:none}
 }
+
+/* Partial genes, the alignment check, intrinsic genes and the breakpoint choice (report.js, app.js gene tables, gene-view.js) */
+.rep-tag-muted{color:var(--muted)}
+.rep-tag-warn{border-color:#c9a227;color:#8a6d00}
+.rep-warn{color:#8a6d00;font-style:normal}
+.rep-partials{display:flex;flex-direction:column;gap:6px}
+.rep-partial{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.rep-standard{font-size:var(--fs-sm);padding:2px 6px}
+.res-table td[data-k="gene"]{white-space:normal;overflow:visible;text-overflow:clip}
+.res-table td .rep-tag{margin-left:6px;vertical-align:middle}
+.res-table tr.row-partial td{color:var(--muted)}
+.gv-check{padding:8px 18px;font-size:var(--fs-sm);color:var(--muted);border-bottom:1px solid var(--rule)}
+.gv-check-warn{color:#8a6d00}
+@media print{.rep-standard{display:none}}

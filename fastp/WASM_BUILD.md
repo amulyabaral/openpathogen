@@ -82,7 +82,7 @@ Notes:
   `--thread` consumers and up to 7 writers mid-run, when no new workers can
   be created. Raise the expression if `--thread` goes above 4.
 - `-pthread` needs `SharedArrayBuffer`, i.e. a cross-origin-isolated page —
-  the site already forces this via `coi-serviceworker.min.js` for KMA. fastp
+  the site already ensures this for KMA (`_headers` on the host, `sw.js` elsewhere). fastp
   therefore no longer works without cross-origin isolation (the old wasm32
   build's one advantage).
 - 1 MiB stacks: fastp's option parsing exceeds the wasm default.

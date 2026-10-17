@@ -1,5 +1,6 @@
 /* integrity.js — pinned SHA-256 checksums for every database/index file the
- * app can download (KMA indexes, the CABBAGE association table and manifest).
+ * app can download (KMA indexes, the CABBAGE association table and manifest,
+ * the Deacon human index).
  *
  * Downloads — whether same-origin or from Zenodo — are verified against these
  * pins before they are used or cached, so a compromised or wrongly-updated
@@ -27,8 +28,10 @@ const PINNED_SHA256 = {
   'databases/VFDB_setA_nt.fas.gz.name': '48d09fa30ca97adff28ede5cb5c0e4e31a7b0c217de5761141df62f1cdbf8317',
   'databases/VFDB_setA_nt.fas.gz.seq.b': 'd5b1567d6e59fbfdec0ae5613cb558a6206df6dbc13ae9eeba54eb8a42087520',
   // CABBAGE association table + manifest
-  'databases/cabbage/manifest.json': '7ee097cacfd9f269a5e856bc52252f3cbf0197620137c9d7b46e8a4e4549f390',
-  'databases/cabbage/associations.json.gz': '7061c2b736b8a60a8e6aa595065cd7f1cc909ec0cef18c94277956bcefb76222',
+  'databases/cabbage/manifest.json': '50a1d2fbe510237154e17cbd09aebf344726e461eb8b992a501aa0f5522b9b78',
+  'databases/cabbage/associations.json.gz': '104fef1cc6c3f189bf037b8b689732b1c8756a545e68c92f931474fac8574a80',
+  // Deacon human index (deacon/build.sh --index)
+  'databases/deacon/panhuman-1.k31w61.b16.pidx': '6ffda39e0bf5c6d6241b66bb32fb5173b793cbc98bca974d8078ccc475c98acd',
 };
 
 export function isPinned(path) {

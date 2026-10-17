@@ -238,13 +238,21 @@ def build_associations(min_n=20):
     backgrounds are kept: all AST isolates (the species antibiogram) and AST
     isolates that also have a genome (the cohort gene carriers come from).
 
-    Phenotype per (isolate, antibiotic): Updated_phenotype_CLSI, else
-    Updated_phenotype_EUCAST (both 2025 breakpoints, per the CABBAGE paper),
-    else the submitted category; the first record wins. Rows with fewer than
-    min_n isolates are dropped (the card never shows them).
+    Phenotype per (isolate, antibiotic), under two breakpoint standards the
+    report lets the user choose between: "clsi" is Updated_phenotype_CLSI,
+    else Updated_phenotype_EUCAST, else the submitted category; "eucast" is
+    the same with EUCAST first (both 2025 breakpoints, per the CABBAGE
+    paper). The first record wins. Rows with fewer than min_n isolates are
+    dropped (the card never shows them). The output is version 3: one
+    rows/background/background_seq table per standard.
     """
-    def effective_phenotype(r, prefix):
-        for col in ('Updated_phenotype_CLSI', 'Updated_phenotype_EUCAST', 'resistance_phenotype'):
+    STANDARDS = {
+        "clsi": ("Updated_phenotype_CLSI", "Updated_phenotype_EUCAST", "resistance_phenotype"),
+        "eucast": ("Updated_phenotype_EUCAST", "Updated_phenotype_CLSI", "resistance_phenotype"),
+    }
+
+    def effective_phenotype(r, prefix, order):
+        for col in order:
             v = r.get(prefix + col)
             if v:
                 return v
@@ -305,69 +313,83 @@ def build_associations(min_n=20):
 
     # Pass 2: phenotype side.
     print("  association: joining phenotypes...", flush=True)
-    assoc = {}           # (species, gene, antibiotic) -> [r, i, s]
-    background = {}      # (species, antibiotic) -> [r, i, s]   all AST isolates
-    background_seq = {}  # (species, antibiotic) -> [r, i, s]   AST isolates with a genome
+    # Per standard: (species, gene, antibiotic) -> [r, i, s]; the species
+    # antibiogram over all AST isolates; the same over AST isolates with a
+    # genome (the cohort gene carriers come from); and, per BioSample, the
+    # antibiotics already counted (the first record wins).
+    assoc = {std: {} for std in STANDARDS}
+    background = {std: {} for std in STANDARDS}
+    background_seq = {std: {} for std in STANDARDS}
+    seen_ab = {std: {} for std in STANDARDS}
     species_counts = {}  # species -> genotyped isolates with AST
-    seen_ab = {}         # BioSample -> antibiotics already counted
+    counted = set()      # BioSamples in species_counts
     with open(os.path.join(RAW_DIR, "phenotypes.jsonl")) as f:
         for line in f:
             r = json.loads(line)
             bs = r.get("phenotype-BioSample_ID")
             ab = r.get("phenotype-antibiotic_name")
-            b = bucket(effective_phenotype(r, "phenotype-"))
-            if not bs or not ab or not b:
+            if not bs or not ab:
                 continue
-            sabs = seen_ab.get(bs)
-            new_isolate = sabs is None
-            if new_isolate:
-                sabs = seen_ab[bs] = set()
-            if ab in sabs:
-                continue
-            sabs.add(ab)
-
             g = isolate_genes.get(bs)
             species = r.get("phenotype-species") or (g[0] if g else None)
             if not species:
                 continue
-            if new_isolate and g:
-                species_counts[species] = species_counts.get(species, 0) + 1
-            idx = 'ris'.index(b)
-            e = background.get((species, ab))
-            if e is None:
-                e = background[(species, ab)] = [0, 0, 0]
-            e[idx] += 1
-            if g:
-                e = background_seq.get((species, ab))
+            for std, order in STANDARDS.items():
+                b = bucket(effective_phenotype(r, "phenotype-", order))
+                if not b:
+                    continue
+                sabs = seen_ab[std].get(bs)
+                if sabs is None:
+                    sabs = seen_ab[std][bs] = set()
+                if ab in sabs:
+                    continue
+                sabs.add(ab)
+                if g and bs not in counted:
+                    counted.add(bs)
+                    species_counts[species] = species_counts.get(species, 0) + 1
+                idx = 'ris'.index(b)
+                e = background[std].get((species, ab))
                 if e is None:
-                    e = background_seq[(species, ab)] = [0, 0, 0]
+                    e = background[std][(species, ab)] = [0, 0, 0]
                 e[idx] += 1
-                for gene in g[1]:
-                    key = (species, gene, ab)
-                    ae = assoc.get(key)
-                    if ae is None:
-                        ae = assoc[key] = [0, 0, 0]
-                    ae[idx] += 1
+                if g:
+                    e = background_seq[std].get((species, ab))
+                    if e is None:
+                        e = background_seq[std][(species, ab)] = [0, 0, 0]
+                    e[idx] += 1
+                    for gene in g[1]:
+                        key = (species, gene, ab)
+                        ae = assoc[std].get(key)
+                        if ae is None:
+                            ae = assoc[std][key] = [0, 0, 0]
+                        ae[idx] += 1
 
-    kept = {k: e for k, e in assoc.items() if sum(e) >= min_n}
-    used_genes = sorted({g for (_, g, _) in kept})
-    print(f"  association: {len(assoc):,} (species, gene, antibiotic) rows, {len(kept):,} with n >= {min_n}", flush=True)
+    kept = {std: {k: e for k, e in assoc[std].items() if sum(e) >= min_n} for std in STANDARDS}
+    used_genes = sorted({g for std in STANDARDS for (_, g, _) in kept[std]})
+    for std in STANDARDS:
+        print(f"  association ({std}): {len(assoc[std]):,} (species, gene, antibiotic) rows, "
+              f"{len(kept[std]):,} with n >= {min_n}", flush=True)
+
+    def tables(std):
+        return {
+            "rows": [
+                {"species": sp, "gene": g, "antibiotic": ab, "r": e[0], "i": e[1], "s": e[2]}
+                for (sp, g, ab), e in sorted(kept[std].items())
+            ],
+            "background": [
+                {"species": sp, "antibiotic": ab, "r": e[0], "i": e[1], "s": e[2]}
+                for (sp, ab), e in sorted(background[std].items())
+            ],
+            "background_seq": [
+                {"species": sp, "antibiotic": ab, "r": e[0], "i": e[1], "s": e[2]}
+                for (sp, ab), e in sorted(background_seq[std].items())
+            ],
+        }
 
     out = {
-        "version": 2,
+        "version": 3,
         "min_n": min_n,
-        "rows": [
-            {"species": sp, "gene": g, "antibiotic": ab, "r": e[0], "i": e[1], "s": e[2]}
-            for (sp, g, ab), e in sorted(kept.items())
-        ],
-        "background": [
-            {"species": sp, "antibiotic": ab, "r": e[0], "i": e[1], "s": e[2]}
-            for (sp, ab), e in sorted(background.items())
-        ],
-        "background_seq": [
-            {"species": sp, "antibiotic": ab, "r": e[0], "i": e[1], "s": e[2]}
-            for (sp, ab), e in sorted(background_seq.items())
-        ],
+        "standards": {std: tables(std) for std in STANDARDS},
         "genes": [
             {
                 "gene": g,
@@ -385,14 +407,16 @@ def build_associations(min_n=20):
     with open(path, "wb") as f:
         f.write(gz)
     md5 = hashlib.md5(gz).hexdigest()
-    print(f"associations: {len(out['rows']):,} rows, {len(out['background']):,} background, "
+    clsi = out["standards"]["clsi"]
+    print(f"associations: {len(clsi['rows']):,} rows (CLSI), {len(clsi['background']):,} background, "
           f"{len(out['genes']):,} genes, {len(out['species'])} species -> {path} ({len(gz) / 1e6:.2f} MB gz)", flush=True)
     return {
         "file": "associations.json.gz",
-        "version": 2,
+        "version": 3,
         "min_n": min_n,
-        "rows": len(out["rows"]),
-        "background_rows": len(out["background"]),
+        "standards": list(STANDARDS),
+        "rows": len(clsi["rows"]),
+        "background_rows": len(clsi["background"]),
         "genes": len(out["genes"]),
         "species": len(out["species"]),
         "bytes": len(gz),

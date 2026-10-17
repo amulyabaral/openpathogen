@@ -7,6 +7,7 @@
  */
 
 import { describeHit, cardAroUrl } from './genes.js';
+import { indexAln, alignmentCheck, alignmentWarning } from './aln-check.js';
 
 // ── Public entry point ──
 
@@ -67,22 +68,6 @@ function indexFasta(text) {
     }
   }
   if (name) map.set(name, buf.join(''));
-  return map;
-}
-
-function indexAln(text) {
-  const map = new Map();
-  let name = null, buf = [];
-  for (const line of text.split('\n')) {
-    if (line[0] === '#') {
-      if (name) map.set(name, buf.join('\n').replace(/\n+$/, ''));
-      name = line.replace(/^#\s*/, '').trim();
-      buf = [];
-    } else if (name !== null) {
-      buf.push(line);
-    }
-  }
-  if (name) map.set(name, buf.join('\n').replace(/\n+$/, ''));
   return map;
 }
 
@@ -147,6 +132,12 @@ function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, 
   const haveAny = consensus || alnBlock || depth.length || variants.length;
   const meanDepth = depth.length ? depth.reduce((a, b) => a + b, 0) / depth.length : 0;
   const maxDepth = arrMax(depth);
+  // A missing or poorly aligned stretch of the gene (aln-check.js).
+  const check = alignmentCheck(alnBlock);
+  const warning = alignmentWarning(check);
+  const checkLine = !check ? ''
+    : warning ? `<p class="gv-check gv-check-warn">Alignment check: ${esc(warning)} The gene may be truncated or interrupted in this sample, or the reads there may come from a related sequence; see the Alignment tab.</p>`
+    : `<p class="gv-check">Alignment check: no stretch of the gene is missing or below 85% identity.</p>`;
 
   const overlay = document.createElement('div');
   overlay.className = 'gv-overlay';
@@ -160,6 +151,7 @@ function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, 
         <button class="gv-close" type="button" aria-label="Close">×</button>
       </div>
       <div class="gv-stats">${renderStats(row, meanDepth)}</div>
+      ${checkLine}
       ${renderAnnotation(info)}
       <div class="gv-tabs">
         <button class="gv-tab active" type="button" data-tab="cov">Coverage</button>
@@ -218,12 +210,16 @@ function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, 
   if (depth.length) requestAnimationFrame(() => drawCoverage(overlay, depth, variants, meanDepth));
 }
 
+// Identity over the aligned part (Query_Identity, what the sliders use) and
+// over the whole template (Template_Identity, what ResFinder filters on).
 function renderStats(row, meanDepth) {
   const items = [];
-  const id = parseFloat(row.Template_Identity);
+  const qid = parseFloat(row.Query_Identity);
+  const tid = parseFloat(row.Template_Identity);
   const cov = parseFloat(row.Template_Coverage);
-  if (!isNaN(id)) items.push(['Identity', id.toFixed(1) + '%']);
+  if (!isNaN(qid)) items.push(['Identity (aligned part)', qid.toFixed(1) + '%']);
   if (!isNaN(cov)) items.push(['Coverage', cov.toFixed(1) + '%']);
+  if (!isNaN(tid)) items.push(['Template identity', tid.toFixed(1) + '%']);
   if (row.Template_length) items.push(['Length', row.Template_length.trim() + ' bp']);
   const d = row.Depth ? parseFloat(row.Depth) : meanDepth;
   if (!isNaN(d) && d) items.push(['Depth', d.toFixed(1) + '×']);
