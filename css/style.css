@@ -65,15 +65,21 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .workspace{display:flex;width:200%;flex:1;min-height:0;transition:transform .45s cubic-bezier(.4,0,.2,1)}
 .workspace.show-results{transform:translateX(-50%)}
 .pane{width:50%;height:100%;overflow-y:auto;padding:32px}
+/* The input page is one centred column: hero, the run card, then the notes.
+   Its bottom space sits on the last block instead of the pane, so the sticky
+   Run row reaches the pane's edge (sticky stops short of a scroller's padding). */
+.pane-config{padding-top:clamp(32px,6vh,64px);padding-bottom:0}
+.pane-config > *{max-width:760px;margin-inline:auto}
 .main-col > .terminal-card{flex-shrink:0;margin:0;border-left:none;border-right:none;border-bottom:none;border-top:1px solid var(--border);border-radius:0}
 .results-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px}
 .results-actions{display:flex;flex-wrap:wrap;gap:8px}
-.hero{margin-bottom:24px}
-.hero-title{font-size:var(--fs-xl);font-weight:600;letter-spacing:-0.02em;margin-bottom:10px}
+.hero{margin-bottom:28px;text-align:center}
+.hero-title{font-size:var(--fs-xl);font-weight:600;letter-spacing:-0.02em;margin-bottom:10px;text-wrap:balance}
+.hero .lede{max-width:640px;margin-inline:auto;text-wrap:pretty}
 .lede{font-size:var(--fs-md);color:var(--muted);margin:0}
 
 .card{border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px;background:var(--bg)}
-.card-body{padding:16px 20px}
+.card-body{padding:22px 24px}
 .card-title{padding:12px 22px;border-bottom:1px solid var(--border)}
 
 .row{display:flex;align-items:center;gap:16px;padding:7px 0}
@@ -89,13 +95,22 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .seg-btn.active{background:var(--ink);color:var(--bg);border-color:var(--ink);position:relative;z-index:1;pointer-events:none}
 
 .form-step{display:flex;align-items:center;gap:10px;font-size:var(--fs-md);font-weight:600;margin:4px 0 12px}
-.form-col + .form-col{margin-top:22px;padding-top:20px;border-top:1px solid var(--rule)}
 .form-step-n{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--bg);font-size:var(--fs-sm);font-weight:600}
+/* One card, two steps: Reads, then Settings once the reads are in
+   (renderSteps in app.js). Until then step 2 is a muted heading and a note. */
+.stage + .stage{margin-top:22px;padding-top:20px;border-top:1px solid var(--rule)}
+.stage-locked .form-step{color:var(--muted);margin-bottom:6px}
+.stage-locked .form-step-n{background:none;color:var(--muted);box-shadow:inset 0 0 0 1px var(--border)}
+.stage-in{animation:stage-in .35s ease}
+@keyframes stage-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.stage-in{animation:none}}
+#run{scroll-margin-top:20px}
+#qc-row{scroll-margin:12px 0 84px}
 
 .dropzone{border:1px dashed var(--muted);border-radius:var(--r);margin-bottom:10px;transition:background .15s,border-color .15s}
 .dropzone.has-files{border-style:solid;border-color:var(--border)}
 .dropzone.dragging{border:1px dashed var(--ink);background:var(--rule)}
-.dz-empty{display:flex;flex-direction:column;align-items:center;gap:6px;padding:26px 20px;text-align:center}
+.dz-empty{display:flex;flex-direction:column;align-items:center;gap:8px;padding:36px 20px;text-align:center}
 .dz-icon{width:28px;height:28px;color:var(--muted)}
 .dz-title{font-size:var(--fs-md);font-weight:500;margin:0}
 .dz-pick{padding:0;border:none;font-weight:600;text-decoration:underline;text-underline-offset:3px}
@@ -133,7 +148,7 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .btn-primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .btn-primary:hover:not(:disabled){background:var(--bg);color:var(--ink)}
 
-.run-row{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin:14px -20px 0;padding:14px 20px;border-top:1px solid var(--rule);position:sticky;bottom:0;z-index:2;background:var(--bg)}
+.run-row{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin:16px -24px -8px;padding:14px 24px;border-top:1px solid var(--rule);position:sticky;bottom:0;z-index:2;background:var(--bg)}
 .run-row .btn-primary{min-width:120px;justify-content:center}
 #run-hint{text-align:right}
 .run-row .btn-primary{padding:9px 20px}
@@ -255,7 +270,7 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 .doc-content .defs + p{margin-top:14px}
 
 /* ── Home page: explanatory content below the tool ── */
-.home-info{margin-top:40px;padding-top:28px;border-top:1px solid var(--rule)}
+.home-info{margin-top:40px;padding:28px 0 32px;border-top:1px solid var(--rule)}
 .home-info h2{font-size:var(--fs-md);font-weight:500;margin-bottom:14px}
 .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-bottom:32px}
 .info-grid h3{font-size:var(--fs-base);font-weight:500;margin-bottom:6px}
@@ -335,8 +350,9 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 .show-more-btn:hover{color:var(--ink)}
 
 /* ── Fetch a public run from ENA ── */
-#run-accession{flex:1 1 160px;min-width:140px;max-width:280px}
-.fetch-row{flex-wrap:wrap}
+#run-accession{flex:1 1 200px;min-width:140px}
+.fetch-row{flex-wrap:wrap;gap:8px 10px;padding-top:10px}
+.fetch-row > .label{flex-basis:100%;width:auto}
 .fetch-meta{margin:10px 2px 0;font-size:var(--fs-sm);color:var(--muted)}
 .fetch-prog{height:3px;margin-top:10px;background:var(--rule);border-radius:2px;overflow:hidden}
 .fetch-prog[hidden]{display:none}
@@ -399,48 +415,13 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 .ev-qc .ev-body{padding:16px 20px}
 
 /* ── Responsive ── */
-/* Wide windows: Reads and Settings side by side, labels above their
-   controls, so the whole form and the Run button fit without scrolling. */
-@media (min-width:960px){
-  .pane-config{padding:20px 32px}
-  .hero{margin-bottom:14px}
-  .hero-title{font-size:var(--fs-lg);margin-bottom:4px}
-  .lede{font-size:var(--fs-base)}
-  .form-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 36px}
-  .form-col + .form-col{margin-top:0;padding-top:0;border-top:none;border-left:1px solid var(--rule);padding-left:36px}
-  .form-col .row{flex-wrap:wrap;gap:6px 12px;padding:5px 0}
-  .form-col .row > .label{flex-basis:100%;width:auto;padding-top:0}
-  .form-col .opt-group{flex:1 1 100%;min-width:0}
-  .form-col .db-list,.form-col #species{width:100%}
-  .form-col .db-check{padding:7px 12px}
-  .form-col .db-text{flex-wrap:nowrap}
-  .form-col .db-name{flex-shrink:0;white-space:nowrap}
-  .form-col .db-desc{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .form-step{margin:0 0 8px}
-  .file-row{padding:6px 12px}
-  .file-actions{padding:6px 12px}
-  .fetch-meta{margin-top:4px}
-  .db-row{position:relative}
-  .form-col .clear-cache-btn{position:absolute;top:5px;right:0;margin:0}
-  .form-col #run-accession{flex:1 1 100%;max-width:none}
-  .dz-empty{flex-direction:row;justify-content:center;gap:14px;padding:18px 20px;text-align:left}
-  .dz-empty .dz-text{display:flex;flex-direction:column;gap:2px}
-  #kma-options{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;max-width:none}
-  .form-col .slider-row{display:grid;grid-template-columns:1fr auto;grid-template-areas:"label val" "range range";gap:2px 12px}
-  .form-col .slider-row .label{grid-area:label}
-  .form-col .slider-row input[type=range]{grid-area:range;width:100%}
-  .form-col .slider-row .slider-val{grid-area:val;width:auto}
-  .run-row{margin-top:10px;padding:12px 20px}
-  /* Settings scrolls inside its column (max-height set by fitSettingsColumn
-     in app.js); at its end the scroll carries on to the page. */
-  .form-col-settings{overflow-y:auto;padding-right:10px;padding-bottom:4px}
-}
 @media (max-width:880px){
   html,body{height:auto;overflow:auto}
   .layout{grid-template-columns:1fr;overflow:visible}
   .main-col{padding:0;height:auto;overflow:visible}
   .workspace{flex-direction:column;width:100%;transform:none!important;transition:none}
   .pane{width:100%;padding:24px 20px 60px;height:auto;overflow:visible}
+  .home-info{padding-bottom:0}
   /* Stacked layout shows one pane at a time; results only exist after a run. */
   .pane-results{display:none}
   .workspace.show-results .pane-results{display:block}
@@ -462,14 +443,18 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
   .topbar-link{padding:4px 10px}
   .seg-long{display:none}
   .seg-short{display:inline}
-  .dz-empty{padding:20px 14px}
+  .hero{text-align:left}
+  .card-body{padding:16px}
+  .run-row{margin:14px -16px -4px;padding:14px 16px}
+  .dz-empty{padding:26px 14px}
   /* Rows stack: the label sits above its control. */
   .row{flex-wrap:wrap;gap:8px 16px}
   .row > .label{flex-basis:100%;width:auto;padding-top:0}
   .slider-row{display:grid;grid-template-columns:1fr auto;gap:6px 12px}
   .slider-row .label{grid-column:1 / -1}
   .fetch-row #run-accession{flex:1 1 100%;max-width:none}
-  .fetch-row .btn{flex:1 1 calc(50% - 8px);justify-content:center}
+  .fetch-row .btn{flex:1 1 auto;justify-content:center}
+  #btn-example{white-space:nowrap}
   .run-row{flex-direction:column;align-items:stretch}
   #run-hint{text-align:left}
   .run-row .btn-primary{width:100%;justify-content:center}

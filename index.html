@@ -29,7 +29,7 @@
   <meta name="twitter:image:alt" content="openpathogen: browser-based AMR and virulence gene detection. Reads never leave your machine.">
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="apple-touch-icon" href="favicon.png">
-  <link rel="stylesheet" href="css/style.css?v=75">
+  <link rel="stylesheet" href="css/style.css?v=76">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -135,13 +135,12 @@
 
     <div class="hero">
       <h1 class="hero-title">Antimicrobial resistance and virulence gene detection in your browser</h1>
-      <p class="lede">openpathogen is a free and open-source platform for screening sequencing reads for antimicrobial resistance and virulence genes directly in your browser. No accounts, no queueing, no uploading your reads to some server somewhere.</p>
+      <p class="lede">openpathogen is a free and open-source platform for screening sequencing reads for antimicrobial resistance and virulence genes directly in your browser, using your own computer.</p>
     </div>
 
     <section class="card" id="run" aria-label="Run an analysis">
       <div class="card-body">
-      <div class="form-cols">
-      <div class="form-col">
+      <div class="stage" id="stage-reads">
 
       <h2 class="form-step"><span class="form-step-n">1</span>Reads</h2>
 
@@ -150,7 +149,7 @@
           <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 006.5 20h11a1.5 1.5 0 001.5-1.5V14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <div class="dz-text">
             <p class="dz-title">Drop FASTQ files here or <button class="dz-pick" type="button" data-pick>choose files</button></p>
-            <p class="opt-note">FASTQ, plain or gzipped. For paired-end reads, select R1 and R2 together.</p>
+            <p class="opt-note">Plain or gzipped. For paired-end reads, select R1 and R2 together.</p>
           </div>
         </div>
         <ul class="file-list" id="file-list" hidden>
@@ -170,12 +169,13 @@
         <div class="file-actions" id="file-actions" hidden>
           <button class="link-btn" type="button" id="btn-swap">Swap R1 and R2</button>
           <button class="link-btn" type="button" data-pick>Choose other files</button>
+          <button class="link-btn" type="button" id="btn-clear-reads" title="Remove these reads and start again">Clear</button>
         </div>
         <input type="file" hidden multiple id="file-input" accept=".fastq,.fq,.gz,application/gzip,application/x-gzip">
       </div>
       <p class="opt-note upload-note" id="upload-note" role="status" hidden></p>
 
-      <div class="row row-top">
+      <div class="row row-top" id="read-type-row" hidden>
         <span class="label" id="read-type-label">Read type</span>
         <div class="opt-group">
           <div class="seg" id="read-type" role="group" aria-labelledby="read-type-label">
@@ -183,11 +183,11 @@
             <button class="seg-btn" type="button" data-type="single" aria-pressed="false">Single-end</button>
             <button class="seg-btn" type="button" data-type="nanopore" aria-pressed="false">Nanopore</button>
           </div>
-          <p class="opt-note" id="read-type-note">Set automatically from the files you add. Change it here if needed.</p>
+          <p class="opt-note" id="read-type-note">Set from your files. Change it if needed.</p>
         </div>
       </div>
 
-      <div class="row fetch-row">
+      <div class="row fetch-row" id="fetch-row">
         <label class="label" for="run-accession">Or fetch a public run</label>
         <input type="text" id="run-accession" placeholder="Run accession (SRR…, ERR…, DRR…)" spellcheck="false" autocomplete="off" enterkeyhint="go">
         <button class="btn" id="btn-fetch-run" type="button" title="Fetch sequencing reads from a public run. ENA is queried for organism, platform and layout, and the read type is set automatically. Files are limited to 1 GB each.">Fetch reads</button>
@@ -197,20 +197,22 @@
       <div class="fetch-meta" id="run-meta" hidden></div>
 
       </div>
-      <div class="form-col form-col-settings" id="settings-col">
+      <div class="stage stage-locked" id="settings-col">
 
       <h2 class="form-step"><span class="form-step-n">2</span>Settings</h2>
+      <p class="opt-note" id="settings-note">Shows up once your reads are in.</p>
 
+      <div id="settings-body" hidden>
       <div class="row row-top">
         <label class="label" for="species">Species</label>
         <div class="opt-group species-group">
           <input type="text" id="species" list="species-list" autocomplete="off" spellcheck="false" placeholder="For example E. coli">
           <datalist id="species-list"></datalist>
-          <p class="opt-note">Optional. Adds CABBAGE tested-resistance rates to the report, and lets PointFinder check the species' known resistance mutations.</p>
+          <p class="opt-note">Optional. Adds CABBAGE resistance rates and PointFinder mutations.</p>
         </div>
       </div>
 
-      <div class="row row-top">
+      <div class="row row-top" id="qc-row">
         <span class="label">Quality control</span>
         <div class="opt-group">
           <div class="fastp-head">
@@ -222,18 +224,18 @@
               fastp settings <svg class="chev fastp-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
-          <p class="opt-note">Trims adapters and drops low-quality reads before alignment.</p>
+          <p class="opt-note">Trims adapters and drops low-quality reads.</p>
 
           <div id="fastp-config" hidden>
             <div class="fastp-panel" id="fastp-panel">
-              <p class="opt-note"><b>Defaults:</b> adapter trimming with auto-detection · quality filtering (min Phred 15, max 40% low-quality bases, max 5 Ns) · length filtering (min 15 bp) · poly-G trimming automatic · base correction off. These are fastp's defaults. Turn a group off to skip that step.</p>
+              <p class="opt-note">These are fastp's defaults. Untick a group to skip that step.</p>
 
               <div class="fp-group">
                 <label class="check-row fp-group-head"><input type="checkbox" id="fp-trim" checked><span>Adapter trimming</span></label>
                 <div class="fp-fields" id="fp-adapter-fields">
                   <label class="fp-field">Adapter R1<input type="text" id="fp-adapter-r1" spellcheck="false" autocomplete="off" maxlength="100" placeholder="auto · AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"></label>
                   <label class="fp-field" id="fp-field-adapter-r2">Adapter R2<input type="text" id="fp-adapter-r2" spellcheck="false" autocomplete="off" maxlength="100" placeholder="auto · AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT"></label>
-                  <p class="opt-note">Leave blank for auto-detection (paired runs) or the Illumina TruSeq default shown (single-end). Enter 5 to 100 IUPAC bases, for example a Nextera or custom adapter, to use your own sequence.</p>
+                  <p class="opt-note">Leave blank for auto-detection, or enter your own (5 to 100 bases).</p>
                 </div>
               </div>
 
@@ -243,7 +245,7 @@
                   <label class="fp-field">Min base quality (Phred)<input type="number" id="fp-phred" min="1" max="40" value="15"></label>
                   <label class="fp-field">Max low-quality bases %<input type="number" id="fp-unqual-pct" min="0" max="100" value="40"></label>
                   <label class="fp-field">Max N bases<input type="number" id="fp-nlimit" min="0" max="50" value="5"></label>
-                  <p class="opt-note">A read is dropped if more than the given % of bases fall below the Phred score, or it has more than the N limit.</p>
+                  <p class="opt-note">Reads over either limit are dropped.</p>
                 </div>
               </div>
 
@@ -270,9 +272,9 @@
                 </div>
               </div>
 
-              <p class="opt-note">fastp processes the whole sample, and the databases are run on the trimmed reads. The exact fastp command is printed in the Logs and stored in both reports.</p>
+              <p class="opt-note">The databases run on the trimmed reads.</p>
             </div>
-            <p class="opt-note" id="fastp-ont-note" hidden>Nanopore reads: fastp is made for Illumina data, so it only reports statistics here. Reads are not trimmed or filtered, and the databases see every read.</p>
+            <p class="opt-note" id="fastp-ont-note" hidden>Nanopore: fastp only reports statistics here. No reads are trimmed or dropped.</p>
           </div>
         </div>
       </div>
@@ -288,7 +290,7 @@
               <span class="db-prog" aria-hidden="true"><i></i></span>
             </label>
           </div>
-          <p class="opt-note">For samples with human DNA, such as swabs or clinical metagenomes. Reads that match the human pangenome are removed on this device, and the rest can be downloaded.</p>
+          <p class="opt-note">For samples with human DNA, such as swabs.</p>
         </div>
       </div>
 
@@ -338,14 +340,14 @@
       </div>
       <div class="row">
         <span class="label"></span>
-        <p class="opt-note">Identity is measured over the aligned part of a gene and coverage over the gene's full length. A hit that reaches the identity threshold but not the coverage threshold is listed as a partial gene, with the part that is missing when the reads are deep enough to tell.</p>
+        <p class="opt-note">A hit with enough identity but too little coverage is listed as a partial gene.</p>
       </div>
       </div><!-- /kma-options -->
+      </div><!-- /settings-body -->
 
       </div>
-      </div><!-- /form-cols -->
 
-      <div class="run-row">
+      <div class="run-row" id="run-row" hidden>
         <p class="opt-note" id="run-hint" hidden></p>
         <button class="btn btn-primary" id="btn-run" type="button" disabled>Run</button>
       </div>
@@ -422,7 +424,7 @@
 </div>
 
 <script src="js/vendor/fflate.min.js"></script>
-  <script type="module" src="js/app.js?v=67"></script>
+  <script type="module" src="js/app.js?v=68"></script>
 
 </body>
 </html>

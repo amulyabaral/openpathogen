@@ -31,6 +31,7 @@ const state = {
   files: { r1: null, r2: null },
   wasmReady: false,
   running: false,
+  loadingReads: false, // a public run or the example is downloading
   species: '',        // the species box; filled in for the example and ENA runs
   speciesAuto: false, // true while that text came from run metadata, not the user
   selectedDbs: new Set(['resfinder', 'pointfinder']),
@@ -105,7 +106,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupPrint();
   setupLogsToggle();
   applyReadType();
-  setupSettingsColumn();
 
   const logToTerm = (msg, level) => term.push(msg, level);
   setLogCallback(logToTerm);
@@ -166,14 +166,11 @@ function setupRunOptions() {
   // The settings panel never inflates on its own: a "fastp settings"
   // expander appears beside the checkbox when fastp is on (reserving its
   // space, so nothing moves), and only the user opens it.
-  document.getElementById('fastp-toggle')?.addEventListener('click', (e) => {
+  document.getElementById('fastp-toggle')?.addEventListener('click', () => {
     fastpExpanded = !fastpExpanded;
     refreshFastpPanel();
-    // Bring the opened panel into view within the Settings column.
-    const col = document.getElementById('settings-col');
-    if (fastpExpanded && col && col.scrollHeight > col.clientHeight) {
-      col.scrollTo({ top: e.currentTarget.offsetTop - col.offsetTop - 60, behavior: 'smooth' });
-    }
+    // Bring the opened panel into view, with its checkbox.
+    if (fastpExpanded) document.getElementById('qc-row')?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
   });
   // Sub-toggles gate their own fields: unchecking "Adapter trimming" greys
   // out the sequence inputs, etc.
@@ -257,39 +254,56 @@ function collectFastpOptions() {
   return opts;
 }
 
-// ── Settings column height ──
+// ── Steps ──
 //
-// On wide windows the whole form fits on screen. The Settings column is
-// capped at the height left in the window and scrolls on its own when it
-// grows (fastp settings open), so the Run button stays in view; once the
-// column reaches its end, the scroll carries on to the page.
+// One card, two steps. Reads come first: the drop zone, a public run or the
+// example. Settings and the Run button show once the reads are complete (one
+// file, or both files of a pair), so there is one thing to do at a time.
 
-function fitSettingsColumn() {
-  const col = document.getElementById('settings-col');
-  const pane = document.querySelector('.pane-config');
-  const cols = col?.parentElement;
-  const card = document.getElementById('run');
-  if (!col || !pane || !cols || !card) return;
-  if (!window.matchMedia('(min-width:960px)').matches) {
-    col.style.maxHeight = '';
-    return;
-  }
-  const paneTop = pane.getBoundingClientRect().top - pane.scrollTop;
-  const colTop = col.getBoundingClientRect().top - paneTop;
-  // Everything below the columns: Run row, card padding and border, and the
-  // pane's bottom padding. None of it depends on the column's height.
-  const below = card.getBoundingClientRect().bottom - cols.getBoundingClientRect().bottom
-    + parseFloat(getComputedStyle(pane).paddingBottom);
-  const left = cols.firstElementChild?.offsetHeight || 0;
-  col.style.maxHeight = Math.max(left, 260, Math.floor(pane.clientHeight - colTop - below)) + 'px';
+const SETTINGS_NEXT = 'Shows up once your reads are in.';
+const SETTINGS_NEED_PAIR = 'Add the other file of the pair, or change the read type.';
+const SETTINGS_LOADING = 'Fetching the reads…';
+
+let settingsShown = false;
+
+function readsReady() {
+  return !!state.files.r1 && (state.readType !== 'paired' || !!state.files.r2);
 }
 
-function setupSettingsColumn() {
-  fitSettingsColumn();
-  window.addEventListener('resize', fitSettingsColumn);
-  // The Reads column changes height as files are added or removed.
-  const reads = document.getElementById('settings-col')?.previousElementSibling;
-  if (reads && 'ResizeObserver' in window) new ResizeObserver(fitSettingsColumn).observe(reads);
+const scrollBehavior = () => (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
+
+function renderSteps() {
+  const any = !!(state.files.r1 || (state.readType === 'paired' && state.files.r2));
+  const ready = readsReady() && !state.loadingReads;
+  const show = (id, on) => { const el = document.getElementById(id); if (el) el.hidden = !on; };
+  show('read-type-row', any);
+  // The fetch row stays while a download runs: its buttons show the progress.
+  show('fetch-row', !any || state.loadingReads);
+  show('settings-body', ready);
+  show('run-row', ready);
+  show('settings-note', !ready);
+  document.getElementById('settings-col')?.classList.toggle('stage-locked', !ready);
+  const note = document.getElementById('settings-note');
+  if (note) note.textContent = state.loadingReads ? SETTINGS_LOADING : any ? SETTINGS_NEED_PAIR : SETTINGS_NEXT;
+  if (ready && !settingsShown) revealSettings();
+  settingsShown = ready;
+}
+
+// Fade the settings in and, when the card no longer fits in the window,
+// bring its top into view so the settings are on screen.
+function revealSettings() {
+  for (const id of ['settings-body', 'run-row']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.remove('stage-in');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('stage-in');
+  }
+  const card = document.getElementById('run');
+  const pane = card?.closest('.pane');
+  if (!card || !pane) return;
+  const viewBottom = Math.min(window.innerHeight, pane.getBoundingClientRect().bottom);
+  if (card.getBoundingClientRect().bottom > viewBottom) card.scrollIntoView({ block: 'start', behavior: scrollBehavior() });
 }
 
 // ── Read type ──
@@ -298,7 +312,7 @@ function setupSettingsColumn() {
 // or Nanopore by its read lengths) or from ENA metadata; the toggle is there
 // to correct it. The note under the toggle says where the setting came from.
 
-const READ_TYPE_HINT = 'Set automatically from the files you add. Change it here if needed.';
+const READ_TYPE_HINT = 'Set from your files. Change it if needed.';
 
 function setupReadTypeToggle() {
   document.querySelectorAll('#read-type .seg-btn').forEach(btn => {
@@ -347,14 +361,19 @@ function setupUploadSlots() {
   });
   document.querySelectorAll('[data-clear]').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (state.running) return;
+      if (state.running || state.loadingReads) return;
       state.files[btn.dataset.clear] = null;
+      if (!state.files.r1 && !state.files.r2) forgetRunRecord();
       showUploadNote('');
       setReadType(state.readType, READ_TYPE_HINT);
     });
   });
+  document.getElementById('btn-clear-reads')?.addEventListener('click', () => {
+    if (state.running || state.loadingReads) return;
+    clearReads();
+  });
   document.getElementById('btn-swap')?.addEventListener('click', () => {
-    if (state.running) return;
+    if (state.running || state.loadingReads) return;
     const { r1, r2 } = state.files;
     state.files.r1 = r2;
     state.files.r2 = r1;
@@ -413,6 +432,7 @@ const FASTQ_NAME = /\.(fastq|fq)(\.gz)?$|\.gz$/i;
 // decided by its read lengths.
 function assignFiles(list, slotHint) {
   if (state.running) return;
+  if (state.loadingReads) { showUploadNote('Reads are still downloading. Add your files once that is done.'); return; }
   const files = list.filter(f => FASTQ_NAME.test(f.name));
   const notes = [];
   if (files.length < list.length) notes.push(`Skipped ${list.length - files.length} file${list.length - files.length === 1 ? '' : 's'} that ${list.length - files.length === 1 ? 'is' : 'are'} not FASTQ (.fastq, .fq or .gz).`);
@@ -446,10 +466,24 @@ function assignFiles(list, slotHint) {
   showUploadNote(notes.join(' '));
   // The user's own files: forget the species and metadata of a previous
   // example or ENA fetch so the report does not inherit them.
+  forgetRunRecord();
+  updateRunButton();
+}
+
+// The species and the run line that came with an example or an ENA fetch.
+function forgetRunRecord() {
   forgetAutoSpecies();
   const meta = document.getElementById('run-meta');
   if (meta) { meta.hidden = true; meta.textContent = ''; }
-  updateRunButton();
+}
+
+// Back to step 1: no files, and nothing left over from a fetched run.
+function clearReads() {
+  state.files.r1 = null;
+  state.files.r2 = null;
+  forgetRunRecord();
+  showUploadNote('');
+  setReadType(state.readType, READ_TYPE_HINT);
 }
 
 // Single-end Illumina or Nanopore? Illumina reads are at most 300 bp, so
@@ -467,7 +501,7 @@ async function detectLongReads(file) {
   }
   const len = median >= 1000 ? (median / 1000).toFixed(1) + ' kb' : median + ' bp';
   if (median > 400) setReadType('nanopore', `Nanopore: the reads are long (median ${len}).`);
-  else setReadType('single', `Single-end: one file of short reads (median ${len}). Choose Nanopore if that is wrong.`);
+  else setReadType('single', `Single-end: short reads (median ${len}).`);
 }
 
 async function sniffMedianReadLength(file) {
@@ -520,6 +554,7 @@ function renderFiles() {
   }
   for (const slot of ['r1', 'r2']) set(`[data-pick="${slot}"]`, el => { el.hidden = !!state.files[slot]; });
   set('[data-tag="r1"]', el => { el.textContent = paired ? 'R1' : state.readType === 'nanopore' ? 'ONT' : 'SE'; });
+  renderSteps();
 }
 
 function setFile(slot, file) {
@@ -593,30 +628,23 @@ function setupSliders() {
 function updateRunButton() {
   const btn = document.getElementById('btn-run');
   const hint = document.getElementById('run-hint');
-  const haveR1 = !!state.files.r1;
-  const needR2 = state.readType === 'paired';
-  const haveR2 = !!state.files.r2;
+  const haveReads = readsReady() && !state.loadingReads;
   // PointFinder on its own needs a species it covers.
   const haveDb = selectedDbs().some(k => k !== 'pointfinder') || (state.selectedDbs.has('pointfinder') && !!pointfinderSpecies(state.species));
-  const ready = state.wasmReady && !state.running && haveDb && haveR1 && (!needR2 || haveR2);
+  const ready = state.wasmReady && !state.running && haveDb && haveReads;
   btn.disabled = !ready;
   btn.title = haveDb ? '' : 'Select at least one database.';
   if (hint) {
     if (ready && inputTooLargeForEngine()) {
       // Not a limit: the run may still fit, but say why it might fail.
       hint.hidden = false;
-      hint.textContent = `These reads (${formatBytes(inputBytes())}) are large for this browser, which runs the 32-bit engine (no WebAssembly Memory64). The run may run out of memory, most likely on a phone. Chrome or Firefox on a computer handles large inputs.`;
-    } else if (ready || state.running || !state.wasmReady) {
+      hint.textContent = `These reads (${formatBytes(inputBytes())}) may run out of memory in this browser. Chrome or Firefox on a computer handles them.`;
+    } else if (ready || state.running || !state.wasmReady || !haveReads) {
+      // Without reads the Run row is not shown at all (renderSteps).
       hint.hidden = true;
-    } else if (!haveDb) {
-      hint.hidden = false;
-      hint.textContent = 'Select at least one database to run the analysis.';
-    } else if (!haveR1) {
-      hint.hidden = false;
-      hint.textContent = 'Load reads to begin: choose or drop files, fetch a public run, or try the example.';
     } else {
       hint.hidden = false;
-      hint.textContent = 'Add the reverse reads (R2) file to run paired-end analysis.';
+      hint.textContent = 'Select at least one database.';
     }
   }
 }
@@ -656,8 +684,9 @@ const EXAMPLE = {
 
 async function loadExample() {
   const btn = document.getElementById('btn-example');
-  if (btn.disabled) return;
+  if (btn.disabled || state.loadingReads) return;
   btn.disabled = true;
+  state.loadingReads = true;
   const original = btn.textContent;
   // Same thin bar as the database rows, tracking both FASTQs as one download.
   const prog = document.getElementById('example-prog');
@@ -704,11 +733,15 @@ async function loadExample() {
     term.push('Failed to load example: ' + err.message, 'error');
     expandLogs();
     term.push('ENA could not be reached from this browser. Try again later, or choose your own FASTQ files.', 'info');
+    clearReads(); // half a pair is no use: back to the empty step, ready to try again
   } finally {
     btn.textContent = original;
     btn.disabled = false;
     if (prog) prog.hidden = true;
     if (bar) bar.style.width = '0';
+    state.loadingReads = false;
+    renderFiles();
+    updateRunButton();
   }
 }
 
@@ -986,7 +1019,7 @@ const PLATFORM_LABELS = {
 };
 
 async function doFetchRun() {
-  if (state.running) return;
+  if (state.running || state.loadingReads) return;
   const input = document.getElementById('run-accession');
   const btn = document.getElementById('btn-fetch-run');
   const metaEl = document.getElementById('run-meta');
@@ -998,6 +1031,7 @@ async function doFetchRun() {
   }
   if (btn.disabled) return;
   btn.disabled = true;
+  state.loadingReads = true;
   const original = btn.textContent;
   metaEl.hidden = true;
   try {
@@ -1044,10 +1078,13 @@ async function doFetchRun() {
   } catch (err) {
     term.push('Could not fetch run: ' + err.message, 'error');
     expandLogs();
-    metaEl.hidden = true;
+    clearReads(); // half a pair is no use: back to the empty step, ready to try again
   } finally {
     btn.textContent = original;
     btn.disabled = false;
+    state.loadingReads = false;
+    renderFiles();
+    updateRunButton();
   }
 }
 
