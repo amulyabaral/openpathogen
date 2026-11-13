@@ -3,7 +3,8 @@
 # the local database files.
 #
 # Run this after rebuilding or re-publishing ANY database file (KMA indexes
-# under databases/, CABBAGE snapshots under databases/cabbage/) and deploy
+# under databases/, CABBAGE snapshots under databases/cabbage/, PointFinder
+# under databases/pointfinder/) and deploy
 # the updated js/integrity.js together with the new files. Clients refuse any
 # downloadable file whose hash is not pinned or does not match — shipping new
 # bytes without new pins therefore breaks downloads, by design.
@@ -34,6 +35,10 @@ CABBAGE_FILES=(
 HOST_FILES=(
   databases/deacon/panhuman-1.k31w61.b16.pidx
 )
+# PointFinder: the manifest, and each species' index and catalogue
+# (scripts/build-pointfinder.py).
+POINTFINDER_FILES=(databases/pointfinder/manifest.json)
+for f in databases/pointfinder/*/*; do POINTFINDER_FILES+=("$f"); done
 
 row() { printf "  '%s': '%s',\n" "$1" "$(shasum -a 256 "$1" | cut -d' ' -f1)"; }
 
@@ -45,6 +50,8 @@ table_file=$(mktemp)
   for f in "${CABBAGE_FILES[@]}"; do row "$f"; done
   echo "  // Deacon human index (deacon/build.sh --index)"
   for f in "${HOST_FILES[@]}"; do row "$f"; done
+  echo "  // PointFinder references and catalogues (scripts/build-pointfinder.py)"
+  for f in "${POINTFINDER_FILES[@]}"; do row "$f"; done
 } > "$table_file"
 
 # Replace the table between `const PINNED_SHA256 = {` and `};` (newline-free
@@ -57,5 +64,5 @@ awk -v tblfile="$table_file" '
 ' js/integrity.js > js/integrity.js.tmp && mv js/integrity.js.tmp js/integrity.js
 rm -f "$table_file"
 
-echo "Pinned $((${#INDEX_FILES[@]} + ${#CABBAGE_FILES[@]} + ${#HOST_FILES[@]})) files in js/integrity.js."
+echo "Pinned $((${#INDEX_FILES[@]} + ${#CABBAGE_FILES[@]} + ${#HOST_FILES[@]} + ${#POINTFINDER_FILES[@]})) files in js/integrity.js."
 echo "Deploy js/integrity.js together with the new files."

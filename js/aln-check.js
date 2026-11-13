@@ -73,6 +73,14 @@ export function parseAlnBlock(block) {
 //     goodFraction, goodIdentity }
 // with positions 1-based in template coordinates; goodFraction is the share
 // of the template outside poor windows and goodIdentity the identity there.
+//
+// opts.spanned (one byte per template position, 1 where some read reaches
+// it, from the depth matrix) leaves the stretches no read reaches to the gap
+// test in evidence.js: a window that is mostly unreached is not scored, the
+// identity of a window counts its reached positions only, and the good part
+// is the reached part outside poor windows. Without it, an uncovered
+// position counts as a mismatch, which is all the .aln alone can tell (it
+// writes uncovered positions and deletions alike as "-").
 export function alignmentCheck(block, opts = {}) {
   const o = { ...ALN_CHECK, ...opts };
   const { t, q } = parseAlnBlock(block);
@@ -93,6 +101,8 @@ export function alignmentCheck(block, opts = {}) {
   }
   const n = ok.length;
   if (!n) return null;
+  const spanned = o.spanned && o.spanned.length === n ? o.spanned : null;
+  const reached = (i) => (spanned ? spanned[i] : 1);
 
   const w = Math.min(o.window, n);
   const poor = new Uint8Array(n);
@@ -100,19 +110,28 @@ export function alignmentCheck(block, opts = {}) {
   for (let s = 0; s + w <= n; s += o.step) starts.push(s);
   if (starts[starts.length - 1] !== n - w) starts.push(n - w);
   for (const s of starts) {
-    let m = 0, extra = 0;
-    for (let i = s; i < s + w; i++) { m += ok[i]; extra += ins[i]; }
-    if (m / (w + extra) < o.minIdentity) poor.fill(1, s, s + w);
+    let m = 0, extra = 0, scored = 0;
+    for (let i = s; i < s + w; i++) {
+      if (!reached(i)) continue;
+      scored++; m += ok[i]; extra += ins[i];
+    }
+    if (scored < 0.5 * w) continue;
+    if (m / (scored + extra) < o.minIdentity) {
+      for (let i = s; i < s + w; i++) if (reached(i)) poor[i] = 1;
+    }
   }
 
   let poorBases = 0, uncovered = 0, uncoveredInPoor = 0;
   let goodBases = 0, goodMatches = 0, goodIns = 0;
   const segments = [];
   for (let i = 0; i < n; i++) {
-    if (!covered[i]) uncovered++;
+    if (spanned ? !spanned[i] : !covered[i]) uncovered++;
+    if (spanned && !spanned[i]) continue;
     if (!poor[i]) { goodBases++; goodMatches += ok[i]; goodIns += ins[i]; continue; }
     poorBases++;
-    if (!covered[i]) uncoveredInPoor++;
+    // A poor position some read reaches is a mismatch or a deletion in the
+    // sample, never "not covered".
+    if (!spanned && !covered[i]) uncoveredInPoor++;
     const last = segments[segments.length - 1];
     if (last && last.end === i) last.end = i + 1;
     else segments.push({ start: i + 1, end: i + 1 });

@@ -20,7 +20,7 @@
  * Content-Security-Policy.
  */
 
-const VERSION = '2026-10-16';
+const VERSION = '2026-10-18';
 const CACHE = 'openpathogen-' + VERSION;
 const REPORTS = 'openpathogen-reports';
 
@@ -31,9 +31,9 @@ const PRECACHE = [
   './', 'index.html', 'about.html', 'css/style.css', 'favicon.png', 'openpathogen_logo.png',
   'resfinder_db/phenotypes.txt', 'databases/cabbage/manifest.json',
   'js/aln-check.js', 'js/antibiotic-classes.js', 'js/app.js', 'js/assets.js', 'js/cabbage.js',
-  'js/comprehensive.js', 'js/db.js', 'js/deacon-runner.worker.js', 'js/engine.js',
+  'js/comprehensive.js', 'js/db.js', 'js/deacon-runner.worker.js', 'js/engine.js', 'js/evidence.js',
   'js/fastp-runner.worker.js', 'js/fetch-run.js', 'js/gene-view.js', 'js/genes.js', 'js/hamronize.js',
-  'js/hits.js', 'js/host.js', 'js/integrity.js', 'js/kma-runner.worker.js', 'js/report.js',
+  'js/hits.js', 'js/host.js', 'js/integrity.js', 'js/kma-runner.worker.js', 'js/pointfinder.js', 'js/report.js',
   'js/resfinder-db.js', 'js/thresholds.js', 'js/wasm-runtime.js', 'js/vendor/fflate.min.js',
   'js/vendor/plotly-1.2.0.min.js',
   'kma/kma.js', 'kma/kma.wasm', 'kma/kma32.js', 'kma/kma32.wasm',

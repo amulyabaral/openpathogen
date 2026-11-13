@@ -1,0 +1,159 @@
+{
+ "database": "PointFinder",
+ "version": "4.1.1",
+ "commit": "44ce624a806c6d2b70f7e39841a5f9cb4d9010aa",
+ "date": "2025-11-05",
+ "amrfinder_database": "2026-08-07.1",
+ "species": [
+  {
+   "folder": "campylobacter",
+   "label": "Campylobacter (C. jejuni, C. coli)",
+   "files": [
+    "campylobacter.comp.b.gz",
+    "campylobacter.length.b",
+    "campylobacter.name",
+    "campylobacter.seq.b",
+    "catalogue.json.gz"
+   ],
+   "bytes": 128769,
+   "templates": 8,
+   "rows": 26,
+   "dropped": 4
+  },
+  {
+   "folder": "escherichia_coli",
+   "label": "Escherichia coli",
+   "files": [
+    "catalogue.json.gz",
+    "escherichia_coli.comp.b.gz",
+    "escherichia_coli.length.b",
+    "escherichia_coli.name",
+    "escherichia_coli.seq.b"
+   ],
+   "bytes": 186244,
+   "templates": 13,
+   "rows": 70,
+   "dropped": 0
+  },
+  {
+   "folder": "salmonella",
+   "label": "Salmonella",
+   "files": [
+    "catalogue.json.gz",
+    "salmonella.comp.b.gz",
+    "salmonella.length.b",
+    "salmonella.name",
+    "salmonella.seq.b"
+   ],
+   "bytes": 141885,
+   "templates": 8,
+   "rows": 55,
+   "dropped": 2
+  },
+  {
+   "folder": "neisseria_gonorrhoeae",
+   "label": "Neisseria gonorrhoeae",
+   "files": [
+    "catalogue.json.gz",
+    "neisseria_gonorrhoeae.comp.b.gz",
+    "neisseria_gonorrhoeae.length.b",
+    "neisseria_gonorrhoeae.name",
+    "neisseria_gonorrhoeae.seq.b"
+   ],
+   "bytes": 184616,
+   "templates": 16,
+   "rows": 41,
+   "dropped": 0
+  },
+  {
+   "folder": "mycobacterium_tuberculosis",
+   "label": "Mycobacterium tuberculosis",
+   "files": [
+    "catalogue.json.gz",
+    "mycobacterium_tuberculosis.comp.b.gz",
+    "mycobacterium_tuberculosis.length.b",
+    "mycobacterium_tuberculosis.name",
+    "mycobacterium_tuberculosis.seq.b"
+   ],
+   "bytes": 461366,
+   "templates": 36,
+   "rows": 851,
+   "dropped": 2
+  },
+  {
+   "folder": "enterococcus_faecalis",
+   "label": "Enterococcus faecalis",
+   "files": [
+    "catalogue.json.gz",
+    "enterococcus_faecalis.comp.b.gz",
+    "enterococcus_faecalis.length.b",
+    "enterococcus_faecalis.name",
+    "enterococcus_faecalis.seq.b"
+   ],
+   "bytes": 47740,
+   "templates": 2,
+   "rows": 5,
+   "dropped": 0
+  },
+  {
+   "folder": "enterococcus_faecium",
+   "label": "Enterococcus faecium",
+   "files": [
+    "catalogue.json.gz",
+    "enterococcus_faecium.comp.b.gz",
+    "enterococcus_faecium.length.b",
+    "enterococcus_faecium.name",
+    "enterococcus_faecium.seq.b"
+   ],
+   "bytes": 65355,
+   "templates": 3,
+   "rows": 26,
+   "dropped": 0
+  },
+  {
+   "folder": "klebsiella",
+   "label": "Klebsiella pneumoniae complex",
+   "files": [
+    "catalogue.json.gz",
+    "klebsiella.comp.b.gz",
+    "klebsiella.length.b",
+    "klebsiella.name",
+    "klebsiella.seq.b"
+   ],
+   "bytes": 87919,
+   "templates": 7,
+   "rows": 91,
+   "dropped": 8
+  },
+  {
+   "folder": "helicobacter_pylori",
+   "label": "Helicobacter pylori",
+   "files": [
+    "catalogue.json.gz",
+    "helicobacter_pylori.comp.b.gz",
+    "helicobacter_pylori.length.b",
+    "helicobacter_pylori.name",
+    "helicobacter_pylori.seq.b"
+   ],
+   "bytes": 75396,
+   "templates": 1,
+   "rows": 2,
+   "dropped": 0
+  },
+  {
+   "folder": "staphylococcus_aureus",
+   "label": "Staphylococcus aureus",
+   "files": [
+    "catalogue.json.gz",
+    "staphylococcus_aureus.comp.b.gz",
+    "staphylococcus_aureus.length.b",
+    "staphylococcus_aureus.name",
+    "staphylococcus_aureus.seq.b"
+   ],
+   "bytes": 201797,
+   "templates": 11,
+   "rows": 109,
+   "dropped": 0
+  }
+ ]
+}

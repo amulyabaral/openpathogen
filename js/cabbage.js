@@ -13,7 +13,8 @@
  * two breakpoint standards (CLSI 2025 first or EUCAST 2025 first, each
  * falling back to the other), as one table per standard. Genes are
  * AMRFinderPlus element symbols, each with the antibiotics the portal links
- * it to.
+ * it to; point mutations (gyrA_S83L) are in the same tables, matched by
+ * their exact symbol.
  *
  * Files are fetched same-origin (databases/cabbage/), then from Zenodo when
  * CABBAGE_BASE is set, verified against pinned hashes and cached in
@@ -131,37 +132,42 @@ export function loadAssociations() {
       let expectedBytes = 0;
       try { expectedBytes = (await getManifest()).associations?.bytes || 0; } catch (_) {}
       const gz = await fetchSnapshotBytes('associations.json.gz', expectedBytes);
-      const parsed = JSON.parse(window.fflate.strFromU8(window.fflate.gunzipSync(gz)));
-      const raw = parsed.standards || { [DEFAULT_STANDARD]: parsed };
-      const tables = {};
-      const keys = new Set();
-      const speciesSet = new Set();
-      for (const [std, t] of Object.entries(raw)) {
-        tables[std] = indexTable(t);
-        for (const k of tables[std].bySpeciesGene.keys()) {
-          keys.add(k);
-          speciesSet.add(k.slice(0, k.indexOf('\x00')));
-        }
-      }
-      const standards = Object.keys(tables);
-      const genes = new Map();
-      for (const g of parsed.genes || []) {
-        genes.set(g.gene, { symbol: g.symbol || g.gene, cls: g.class || '', links: new Set(g.links || []) });
-      }
-      return {
-        minN: parsed.min_n || 20,
-        species: parsed.species.filter(s => speciesSet.has(s)),
-        tables,
-        standards,
-        defaultStandard: standards.includes(DEFAULT_STANDARD) ? DEFAULT_STANDARD : standards[0],
-        keys,
-        genes,
-        keyIndex: new Map(),
-      };
+      return associationsFrom(JSON.parse(globalThis.fflate.strFromU8(globalThis.fflate.gunzipSync(gz))));
     })();
     associationsPromise.catch(() => { associationsPromise = null; });
   }
   return associationsPromise;
+}
+
+// The association table as the lookups below use it, from the parsed
+// associations.json.
+export function associationsFrom(parsed) {
+  const raw = parsed.standards || { [DEFAULT_STANDARD]: parsed };
+  const tables = {};
+  const keys = new Set();
+  const speciesSet = new Set();
+  for (const [std, t] of Object.entries(raw)) {
+    tables[std] = indexTable(t);
+    for (const k of tables[std].bySpeciesGene.keys()) {
+      keys.add(k);
+      speciesSet.add(k.slice(0, k.indexOf('\x00')));
+    }
+  }
+  const standards = Object.keys(tables);
+  const genes = new Map();
+  for (const g of parsed.genes || []) {
+    genes.set(g.gene, { symbol: g.symbol || g.gene, cls: g.class || '', links: new Set(g.links || []), point: g.kind === 'point' });
+  }
+  return {
+    minN: parsed.min_n || 20,
+    species: parsed.species.filter(s => speciesSet.has(s)),
+    tables,
+    standards,
+    defaultStandard: standards.includes(DEFAULT_STANDARD) ? DEFAULT_STANDARD : standards[0],
+    keys,
+    genes,
+    keyIndex: new Map(),
+  };
 }
 
 export function tableOf(assoc, standard) {
@@ -240,6 +246,7 @@ function speciesIndex(assoc, species) {
   for (const key of assoc.keys) {
     if (!key.startsWith(prefix)) continue;
     const g = key.slice(prefix.length);
+    if (assoc.genes.get(g)?.point) continue; // mutations match exactly (pointEvidence)
     reg(g.toLowerCase(), g);
     reg(looseKey(g), g);
     if (g.includes('/')) {
@@ -296,31 +303,58 @@ const isDrugLink = (l) => !!antibioticClasses(l) || String(l).toLowerCase() === 
 // an AST result), so a rate can be read against what the species does
 // anyway. standard picks the breakpoint table (STANDARDS).
 export function linkedEvidence(assoc, species, names, resfinderAntibiotics, standard = assoc.defaultStandard) {
-  const minN = assoc.minN || 20;
-  const listed = new Set((resfinderAntibiotics || []).map(cabbageName));
-  const table = tableOf(assoc, standard);
   for (const name of names) {
     const matched = matchAssociationGene(assoc, species, name);
-    if (!matched) continue;
-    const info = geneInfo(assoc, matched);
-    const drugLinks = [...info.links].filter(isDrugLink);
-    const rows = [];
-    for (const r of table.bySpeciesGene.get(species + '\x00' + matched) || []) {
-      const n = r.r + r.i + r.s;
-      if (n < minN) continue;
-      const ab = r.antibiotic.toLowerCase();
-      const linked = drugLinks.some(l => linkedAntibiotics(l).has(ab));
-      if (linked || listed.has(ab)) {
-        rows.push({
-          antibiotic: r.antibiotic, r: r.r, i: r.i, s: r.s, n, linked,
-          background: table.backgroundSeq.get(species + '\x00' + ab) || null,
-        });
-      }
-    }
-    rows.sort((a, b) => b.linked - a.linked || b.n - a.n);
-    return { symbol: info.symbol, detectedAs: name, rows };
+    if (matched) return rates(assoc, species, matched, name, resfinderAntibiotics, standard);
   }
   return null;
+}
+
+// The same for a point mutation, by its AMRFinderPlus symbols (gyrA_S83L,
+// or the placements of an indel in a repeat), matched exactly: a loose
+// match would take gyrA_S83F for gyrA_S83L. antibiotics: those PointFinder
+// lists for the mutation.
+export function pointEvidence(assoc, species, symbols, antibiotics, standard = assoc.defaultStandard) {
+  // PointFinder names some antibiotics by class ("Cephalosporins"): those
+  // stand for the drugs of the class.
+  const listed = (antibiotics || []).flatMap(ab => {
+    const cls = POINT_CLASS_NAMES[String(ab).trim().toLowerCase()];
+    return cls ? [...linkedAntibiotics(cls)] : [ab];
+  });
+  for (const sym of symbols || []) {
+    if (assoc.genes.get(sym)?.point && tableOf(assoc, standard).bySpeciesGene.has(species + '\x00' + sym)) {
+      return rates(assoc, species, sym, sym, listed, standard);
+    }
+  }
+  return null;
+}
+
+const POINT_CLASS_NAMES = {
+  cephalosporins: 'cephalosporin', carbapenem: 'carbapenem', macrolide: 'macrolide antibiotic',
+  fluoroquinolone: 'fluoroquinolone antibiotic',
+};
+
+function rates(assoc, species, gene, detectedAs, listedAntibiotics, standard) {
+  const minN = assoc.minN || 20;
+  const listed = new Set((listedAntibiotics || []).map(cabbageName));
+  const table = tableOf(assoc, standard);
+  const info = geneInfo(assoc, gene);
+  const drugLinks = [...info.links].filter(isDrugLink);
+  const rows = [];
+  for (const r of table.bySpeciesGene.get(species + '\x00' + gene) || []) {
+    const n = r.r + r.i + r.s;
+    if (n < minN) continue;
+    const ab = r.antibiotic.toLowerCase();
+    const linked = drugLinks.some(l => linkedAntibiotics(l).has(ab));
+    if (linked || listed.has(ab)) {
+      rows.push({
+        antibiotic: r.antibiotic, r: r.r, i: r.i, s: r.s, n, linked,
+        background: table.backgroundSeq.get(species + '\x00' + ab) || null,
+      });
+    }
+  }
+  rows.sort((a, b) => b.linked - a.linked || b.n - a.n);
+  return { symbol: info.symbol, detectedAs, rows };
 }
 
 // Fuzzy-resolve an organism string ("Staphylococcus aureus subsp. aureus

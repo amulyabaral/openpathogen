@@ -215,10 +215,11 @@ code{font-size:var(--fs-sm);border:1px solid var(--rule);border-radius:var(--r);
 .gv-cov-meta{font-size:var(--fs-sm);color:var(--muted);margin-bottom:8px;font-variant-numeric:tabular-nums}
 .gv-cov{display:block;width:100%;height:160px}
 .gv-legend{display:flex;gap:16px;align-items:center;font-size:var(--fs-xs);color:var(--muted);margin-top:6px}
-.gv-lg-area,.gv-lg-mean,.gv-lg-var{display:inline-block;width:16px;margin-right:-10px;vertical-align:middle}
+.gv-lg-area,.gv-lg-mean,.gv-lg-var,.gv-lg-miss{display:inline-block;width:16px;margin-right:-10px;vertical-align:middle}
 .gv-lg-area{height:8px;background:rgba(0,0,0,.12);border-top:1px solid #666}
 .gv-lg-mean{height:0;border-top:1px dashed #999}
 .gv-lg-var{height:10px;width:0;border-left:1px solid var(--ink)}
+.gv-lg-miss{height:10px;background:rgba(200,60,40,.12);margin-left:10px}
 
 .gv-seqtools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .gv-hint{font-size:var(--fs-sm);color:var(--muted)}
@@ -282,6 +283,8 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 .db-prog{grid-column:1 / -1;height:3px;margin-top:7px;background:var(--rule);border-radius:2px;overflow:hidden;display:none}
 .db-check.downloading .db-prog{display:block}
 .db-prog > i{display:block;height:100%;width:0;background:var(--ink);transition:width .2s}
+/* PointFinder before a species it covers is given: selected, but idle */
+.db-check.db-waiting .db-name,.db-check.db-waiting .db-desc{color:var(--muted)}
 .clear-cache-btn{align-self:flex-start;font-size:var(--fs-sm);color:var(--muted);border:none;padding:2px 0;margin-top:2px;text-decoration:underline;text-underline-offset:3px}
 .clear-cache-btn:hover{color:var(--ink)}
 .clear-cache-btn:disabled{opacity:.5;cursor:default}
@@ -511,6 +514,8 @@ html.doc-body,body.doc-body{height:auto;overflow:auto}
 /* Partial genes, the alignment check, intrinsic genes and the breakpoint choice (report.js, app.js gene tables, gene-view.js) */
 .rep-tag-muted{color:var(--muted)}
 .rep-tag-warn{border-color:#c9a227;color:#8a6d00}
+/* PointFinder table: mutations in some of the reads, or found alone */
+.pf-mut-minority,.pf-mut-needs,.pf-mut-caution{color:var(--muted)}
 .rep-warn{color:#8a6d00;font-style:normal}
 .rep-partials{display:flex;flex-direction:column;gap:6px}
 .rep-partial{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}

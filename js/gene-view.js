@@ -1,6 +1,9 @@
 /* gene-view.js — per-gene detail viewer built entirely from KMA's existing
  * outputs (no extra WASM): consensus sequence (.fsa), template/consensus
- * alignment (.aln), per-base depth (.mat.gz) and variant calls (.vcf.gz).
+ * alignment (.aln), per-base depth (.mat.gz) and variant calls (.vcf.gz),
+ * with what the reads say about the gene (hits.js, evidence.js): stretches
+ * with no reads, reads pooled from sister alleles, the translation, the
+ * closest allele.
  *
  * Everything is parsed lazily and cached on the result object the first time a
  * gene is opened, so large runs don't pay the gunzip/parse cost until needed.
@@ -8,27 +11,55 @@
 
 import { describeHit, cardAroUrl } from './genes.js';
 import { indexAln, alignmentCheck, alignmentWarning } from './aln-check.js';
+import { matrixOf, depthOf } from './evidence.js';
+import { listedAt } from './pointfinder.js';
 
 // ── Public entry point ──
 
 // row: a parsed .res row (Template, Template_Identity, …, _phenotype).
 // result: the runAnalysis result (carries .files with the KMA outputs).
-export function openGeneViewer(row, result) {
+// gene: the gene from hits.js the row belongs to, when there is one: its
+// numbers, warnings and notes, and for reads pooled from sister alleles the
+// pooled depth and consensus.
+// point: for a PointFinder reference gene, { rows, determined, rna,
+// mutations } (app.js pointGene): how many of its listed positions were
+// read, and the mutations found on it, shown instead of the alignment check
+// (a reference gene of the species is not a resistance gene to check).
+export function openGeneViewer(row, result, gene = null, point = null) {
   if (!row || !row.Template) return;
   const template = row.Template;
   const viz = getViz(result);
 
-  const consensus = viz.fsa?.get(template) || '';
+  const ev = gene?.evidence || null;
+  const pooled = !!gene?.pooled && !!ev;
+  const consensus = pooled ? pooledConsensusText(ev.consensus) : (viz.fsa?.get(template) || '');
   const alnBlock = viz.aln?.get(template) || '';
-  const matRows = viz.mat?.get(template) || null;
   const variants = viz.vcf?.get(template) || [];
 
-  // Depth in template coordinates: matrix rows are 1:1 with template positions
-  // (insertion rows, ref="-", are dropped so POS lines up with VCF POS).
-  const depth = matRows ? matRows.filter(r => r.ref !== '-').map(r => r.depth) : [];
+  // Depth in template coordinates: matrix rows are 1:1 with template
+  // positions (insertion rows are left out, so POS lines up with VCF POS).
+  let depth = [];
+  if (ev?.depth) depth = Array.from(ev.depth);
+  else {
+    try { const m = matrixOf(result, template); if (m) depth = Array.from(depthOf(m)); } catch (_) { /* no matrix */ }
+  }
+  const missing = ev?.missing?.map(g => g.extent) || [];
 
   const info = describeHit(template, result.database, row);
-  buildModal({ template, row, info, dbLabel: result.dbLabel, consensus, alnBlock, depth, variants });
+  buildModal({ template, row, gene, point, info, dbLabel: result.dbLabel, consensus, alnBlock, depth, variants, missing, pooled });
+}
+
+// The pooled consensus as a sequence (evidence.js consensusColumns shape),
+// the way KMA writes its own: calls and inserted bases, no gaps.
+function pooledConsensusText(cons) {
+  if (!cons) return '';
+  let s = cons.insert.get(-1) || '';
+  for (let i = 0; i < cons.n; i++) {
+    const b = cons.base[i];
+    if (b && b !== '-') s += b;
+    s += cons.insert.get(i) || '';
+  }
+  return s;
 }
 
 // ── Lazy parse + cache ──
@@ -36,10 +67,9 @@ export function openGeneViewer(row, result) {
 function getViz(result) {
   if (result._viz) return result._viz;
   const files = result.files || {};
-  const viz = { fsa: null, aln: null, mat: null, vcf: null };
+  const viz = { fsa: null, aln: null, vcf: null };
   try { if (files['.fsa']) viz.fsa = indexFasta(asText(files['.fsa'])); } catch (_) {}
   try { if (files['.aln']) viz.aln = indexAln(asText(files['.aln'])); } catch (_) {}
-  try { if (files['.mat.gz']) viz.mat = indexMatrix(gunzipText(files['.mat.gz'])); } catch (_) {}
   try { if (files['.vcf.gz']) viz.vcf = indexVcf(gunzipText(files['.vcf.gz'])); } catch (_) {}
   result._viz = viz;
   return viz;
@@ -68,25 +98,6 @@ function indexFasta(text) {
     }
   }
   if (name) map.set(name, buf.join(''));
-  return map;
-}
-
-// Matrix columns are A C G T N - ; depth = sum of all six.
-function indexMatrix(text) {
-  const map = new Map();
-  let name = null, rows = null;
-  for (const line of text.split('\n')) {
-    if (line[0] === '#') {
-      if (name) map.set(name, rows);
-      name = line.replace(/^#\s*/, '').trim();
-      rows = [];
-    } else if (rows && line.trim()) {
-      const p = line.split('\t');
-      const c = [+p[1] || 0, +p[2] || 0, +p[3] || 0, +p[4] || 0, +p[5] || 0, +p[6] || 0];
-      rows.push({ ref: p[0], c, depth: c[0] + c[1] + c[2] + c[3] + c[4] + c[5] });
-    }
-  }
-  if (name) map.set(name, rows);
   return map;
 }
 
@@ -126,18 +137,33 @@ function variantType(ref, alt) {
 let activeOverlay = null;
 let lastFocus = null; // element to give focus back to when the dialog closes
 
-function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, variants }) {
+function buildModal({ template, row, gene, point, info, dbLabel, consensus, alnBlock, depth, variants, missing = [], pooled = false }) {
   closeViewer();
 
   const haveAny = consensus || alnBlock || depth.length || variants.length;
   const meanDepth = depth.length ? depth.reduce((a, b) => a + b, 0) / depth.length : 0;
   const maxDepth = arrMax(depth);
-  // A missing or poorly aligned stretch of the gene (aln-check.js).
-  const check = alignmentCheck(alnBlock);
-  const warning = alignmentWarning(check);
-  const checkLine = !check ? ''
-    : warning ? `<p class="gv-check gv-check-warn">Alignment check: ${esc(warning)} The gene may be truncated or interrupted in this sample, or the reads there may come from a related sequence; see the Alignment tab.</p>`
-    : `<p class="gv-check">Alignment check: no stretch of the gene is missing or below 85% identity.</p>`;
+  // What the reads say about the gene (hits.js), or without it the
+  // alignment check alone (aln-check.js).
+  let checkLine;
+  if (point) {
+    checkLine = `<p class="gv-check">PointFinder reads ${point.determined} of the ${point.rows} listed position${point.rows === 1 ? '' : 's'} of this gene${point.rna ? ', on the reads of all its copies together' : ''}.</p>`
+      + (point.mutations.length
+        ? point.mutations.map(m => `<p class="gv-check gv-check-warn">${esc(m.protein || m.name)}${m.codon ? ` (${esc(m.codon)})` : ''}: ${m.status === 'minority' ? `in ${Math.round(100 * m.share)}% of the reads` : m.status === 'needs' ? `found without ${esc(m.requires || 'the mutation PointFinder requires with it')}` : m.status === 'caution' ? 'found, but PointFinder lists it as under development and AMRFinderPlus does not curate it' : m.status === 'other' ? `a change at this codon that the table does not hold (it lists ${esc(listedAt(m))})` : 'found'}, ${m.depth}× depth. ${esc(m.antibiotics.join(', ') || 'No antibiotic listed')}.</p>`).join('')
+        : '<p class="gv-check">No mutation from PointFinder’s table is in the reads.</p>');
+  } else if (gene) {
+    const ws = gene.warnings || [];
+    checkLine = ws.length
+      ? ws.map(w => `<p class="gv-check gv-check-warn">Alignment check: ${esc(w)}</p>`).join('')
+      : `<p class="gv-check">Alignment check: no stretch of the gene is missing or below 85% identity${gene.evidence?.translation?.status === 'complete' ? ', and its protein is complete' : ''}.</p>`;
+    checkLine += (gene.notes || []).map(n => `<p class="gv-check">${esc(n)}</p>`).join('');
+  } else {
+    const check = alignmentCheck(alnBlock);
+    const warning = alignmentWarning(check);
+    checkLine = !check ? ''
+      : warning ? `<p class="gv-check gv-check-warn">Alignment check: ${esc(warning)} The gene may be truncated or interrupted in this sample, or the reads there may come from a related sequence; see the Alignment tab.</p>`
+      : `<p class="gv-check">Alignment check: no stretch of the gene is missing or below 85% identity.</p>`;
+  }
 
   const overlay = document.createElement('div');
   overlay.className = 'gv-overlay';
@@ -150,7 +176,7 @@ function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, 
         </div>
         <button class="gv-close" type="button" aria-label="Close">×</button>
       </div>
-      <div class="gv-stats">${renderStats(row, meanDepth)}</div>
+      <div class="gv-stats">${renderStats(row, gene, meanDepth)}</div>
       ${checkLine}
       ${renderAnnotation(info)}
       <div class="gv-tabs">
@@ -163,14 +189,14 @@ function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, 
         ${haveAny ? '' : '<p class="empty">No sequence-level data was produced for this hit.</p>'}
         <div class="gv-panel" data-panel="cov">
           ${depth.length
-            ? `<div class="gv-cov-meta">Length ${depth.length} bp · mean depth ${meanDepth.toFixed(1)}× · max ${maxDepth}×</div>
+            ? `<div class="gv-cov-meta">Length ${depth.length} bp · mean depth ${meanDepth.toFixed(1)}× · max ${maxDepth}×${pooled ? ` · reads of ${gene.members.length} alleles together` : ''}</div>
                <canvas class="gv-cov"></canvas>
-               <div class="gv-legend"><span class="gv-lg-area"></span> depth <span class="gv-lg-mean"></span> mean <span class="gv-lg-var"></span> variant</div>`
+               <div class="gv-legend"><span class="gv-lg-area"></span> depth <span class="gv-lg-mean"></span> mean <span class="gv-lg-var"></span> variant${missing.length ? ' <span class="gv-lg-miss"></span> missing' : ''}</div>`
             : '<p class="empty">No depth matrix available.</p>'}
         </div>
         <div class="gv-panel" data-panel="seq" hidden>
           ${consensus
-            ? `<div class="gv-seqtools"><span class="gv-hint"><span class="gv-lc">lowercase</span> = low-confidence base</span><button class="btn gv-copy" type="button">Copy FASTA</button></div>
+            ? `<div class="gv-seqtools"><span class="gv-hint">${pooled ? 'Consensus of the reads of all the alleles they were divided between. ' : ''}<span class="gv-lc">lowercase</span> = low-confidence base</span><button class="btn gv-copy" type="button">Copy FASTA</button></div>
                <div class="gv-seq">${renderConsensus(consensus)}</div>`
             : '<p class="empty">No consensus sequence available.</p>'}
         </div>
@@ -207,23 +233,28 @@ function buildModal({ template, row, info, dbLabel, consensus, alnBlock, depth, 
   });
 
   // Coverage canvas is the default tab — draw once it has layout width.
-  if (depth.length) requestAnimationFrame(() => drawCoverage(overlay, depth, variants, meanDepth));
+  if (depth.length) requestAnimationFrame(() => drawCoverage(overlay, depth, variants, meanDepth, missing));
 }
 
 // Identity over the aligned part (Query_Identity, what the sliders use) and
-// over the whole template (Template_Identity, what ResFinder filters on).
-function renderStats(row, meanDepth) {
+// over the whole template (Template_Identity, what ResFinder filters on),
+// or for reads pooled from sister alleles the pooled numbers; and how much
+// of the gene some read reaches. KMA's p-value is not shown: under -e 1.0
+// it is 1.0e-26 for every real hit and says nothing about any of them.
+function renderStats(row, gene, meanDepth) {
   const items = [];
-  const qid = parseFloat(row.Query_Identity);
+  const n = gene?.numbers;
+  const qid = n ? n.identity : parseFloat(row.Query_Identity);
   const tid = parseFloat(row.Template_Identity);
-  const cov = parseFloat(row.Template_Coverage);
-  if (!isNaN(qid)) items.push(['Identity (aligned part)', qid.toFixed(1) + '%']);
-  if (!isNaN(cov)) items.push(['Coverage', cov.toFixed(1) + '%']);
-  if (!isNaN(tid)) items.push(['Template identity', tid.toFixed(1) + '%']);
+  const cov = n ? n.coverage : parseFloat(row.Template_Coverage);
+  if (qid != null && !isNaN(qid)) items.push(['Identity (aligned part)', qid.toFixed(1) + '%']);
+  if (cov != null && !isNaN(cov)) items.push(['Coverage', cov.toFixed(1) + '%']);
+  if (!isNaN(tid) && !gene?.pooled) items.push(['Template identity', tid.toFixed(1) + '%']);
   if (row.Template_length) items.push(['Length', row.Template_length.trim() + ' bp']);
-  const d = row.Depth ? parseFloat(row.Depth) : meanDepth;
-  if (!isNaN(d) && d) items.push(['Depth', d.toFixed(1) + '×']);
-  if (row.p_value) items.push(['p-value', row.p_value.trim()]);
+  const d = n?.depth ?? (row.Depth ? parseFloat(row.Depth) : meanDepth);
+  if (d != null && !isNaN(d) && d) items.push(['Depth', d.toFixed(1) + '×']);
+  const ev = gene?.evidence;
+  if (ev) items.push(['Reads reach', `${ev.covered.toLocaleString('en-US')} of ${ev.n.toLocaleString('en-US')} bases`]);
   return items.map(([k, v]) => `<span class="gv-stat"><span class="gv-k">${esc(k)}</span><span class="gv-v">${esc(v)}</span></span>`).join('');
 }
 
@@ -327,7 +358,7 @@ function closeViewer() {
 
 // ── Coverage plot ──
 
-function drawCoverage(overlay, depth, variants, mean) {
+function drawCoverage(overlay, depth, variants, mean, missing = []) {
   const canvas = overlay.querySelector('.gv-cov');
   if (!canvas) return;
   const draw = () => {
@@ -347,6 +378,15 @@ function drawCoverage(overlay, depth, variants, mean) {
     const maxD = Math.max(arrMax(depth), 1);
     const x = i => padL + (n <= 1 ? 0 : (i / (n - 1)) * w);
     const y = d => padT + h - (d / maxD) * h;
+
+    // stretches of the gene that are missing from the reads (evidence.js)
+    if (missing.length) {
+      ctx.fillStyle = 'rgba(200,60,40,0.12)';
+      for (const [a, b] of missing) {
+        const x0 = x(Math.max(0, a - 1)), x1 = x(Math.min(n - 1, b - 1));
+        ctx.fillRect(x0, padT, Math.max(1, x1 - x0), h);
+      }
+    }
 
     // baseline + frame
     ctx.strokeStyle = '#ccc';

@@ -226,11 +226,14 @@ def build_associations(min_n=20):
     antibiotic), how many isolates carrying the gene tested resistant /
     intermediate / susceptible.
 
-    gene is the AMRFinderPlus element symbol (amr_element_symbol), acquired
-    genes only (element_subtype AMR): point mutations cannot be called from
-    reads in openpathogen and are left out. The annotation's gene_symbol is
-    not used: it is null for many AMR calls (mph(C), tet(K), fusB, dfrG ...)
-    and spells one gene several ways (mecA_2, ermC', aacA-aphD).
+    gene is the AMRFinderPlus element symbol (amr_element_symbol): acquired
+    genes (element_subtype AMR) under their canonical symbol, and point
+    mutations (element_subtype POINT, gyrA_S83L) as written, marked kind
+    "point" so the browser matches them exactly (js/cabbage.js
+    pointEvidence; PointFinder calls are named the same way). The
+    annotation's gene_symbol is not used: it is null for many AMR calls
+    (mph(C), tet(K), fusB, dfrG ...) and spells one gene several ways
+    (mecA_2, ermC', aacA-aphD).
 
     Per gene the table also keeps the AMRFinderPlus class and the antibiotic
     names the portal links the gene to (genotype-antibiotic_name), so the
@@ -290,26 +293,30 @@ def build_associations(min_n=20):
         for line in f:
             r = json.loads(line)
             bs = r.get("genotype-BioSample_ID")
-            if not bs or r.get("genotype-element_type") != "AMR" or r.get("genotype-element_subtype") != "AMR":
+            subtype = r.get("genotype-element_subtype")
+            if not bs or r.get("genotype-element_type") != "AMR" or subtype not in ("AMR", "POINT"):
                 continue
-            sym = r.get("genotype-amr_element_symbol") or r.get("genotype-gene_symbol")
+            point = subtype == "POINT"
+            sym = r.get("genotype-amr_element_symbol") if point else (r.get("genotype-amr_element_symbol") or r.get("genotype-gene_symbol"))
             if not sym:
                 continue
-            c = canon_gene(sym)
+            c = sym if point else canon_gene(sym)
             e = isolate_genes.get(bs)
             if e is None:
                 e = isolate_genes[bs] = (r.get("genotype-species"), set())
             e[1].add(c)
             gi = gene_info.get(c)
             if gi is None:
-                gi = gene_info[c] = {"symbols": Counter(), "classes": Counter(), "links": set()}
+                gi = gene_info[c] = {"symbols": Counter(), "classes": Counter(), "links": set(), "point": point}
             gi["symbols"][sym] += 1
             if r.get("genotype-class"):
                 gi["classes"][r["genotype-class"]] += 1
             ab = r.get("genotype-antibiotic_name")
             if ab:
                 gi["links"].add(ab)
-    print(f"  association: {len(isolate_genes):,} genotyped isolates, {len(gene_info):,} acquired genes", flush=True)
+    n_point = sum(1 for g in gene_info.values() if g["point"])
+    print(f"  association: {len(isolate_genes):,} genotyped isolates, {len(gene_info) - n_point:,} acquired genes, "
+          f"{n_point:,} point mutations", flush=True)
 
     # Pass 2: phenotype side.
     print("  association: joining phenotypes...", flush=True)
@@ -396,6 +403,7 @@ def build_associations(min_n=20):
                 "symbol": gene_info[g]["symbols"].most_common(1)[0][0],
                 "class": (gene_info[g]["classes"].most_common(1) or [("", 0)])[0][0],
                 "links": sorted(gene_info[g]["links"]),
+                **({"kind": "point"} if gene_info[g]["point"] else {}),
             }
             for g in used_genes
         ],
@@ -409,7 +417,7 @@ def build_associations(min_n=20):
     md5 = hashlib.md5(gz).hexdigest()
     clsi = out["standards"]["clsi"]
     print(f"associations: {len(clsi['rows']):,} rows (CLSI), {len(clsi['background']):,} background, "
-          f"{len(out['genes']):,} genes, {len(out['species'])} species -> {path} ({len(gz) / 1e6:.2f} MB gz)", flush=True)
+          f"{len(out['genes']):,} genes and mutations, {len(out['species'])} species -> {path} ({len(gz) / 1e6:.2f} MB gz)", flush=True)
     return {
         "file": "associations.json.gz",
         "version": 3,
@@ -418,6 +426,7 @@ def build_associations(min_n=20):
         "rows": len(clsi["rows"]),
         "background_rows": len(clsi["background"]),
         "genes": len(out["genes"]),
+        "point_mutations": sum(1 for g in out["genes"] if g.get("kind") == "point"),
         "species": len(out["species"]),
         "bytes": len(gz),
         "md5": md5,

@@ -8,22 +8,28 @@
  * no gene coverage filter at all; -mrc, which earlier builds passed the
  * coverage slider to, is "Minimum query coverage", a per-read check.
  *
- * So KMA runs with a low -ID floor and the two sliders apply here, to two
- * independent numbers of each .res row:
+ * So KMA runs with its own default -ID of 1%, keeping every template it
+ * assigns reads to, and the two sliders apply here, to two independent
+ * numbers of each gene (hits.js):
  *   identity  Query_Identity: identical bases over the aligned part
  *   coverage  Template_Coverage: the aligned part over the template length
- * Template_Identity equals identity × coverage, which is how the -ID floor
- * follows from the sliders.
+ * Template_Identity equals identity × coverage. A gene whose reads KMA
+ * divided between sister alleles gets the numbers of the pooled reads
+ * (evidence.js). The KMA command does not depend on the sliders, so moving
+ * them never changes what KMA itself reports.
  *
- * This differs from ResFinder's read mode on purpose. ResFinder keeps hits
- * with Template_Identity ≥ 90% and Template_Coverage ≥ 60%, so it never
- * reports a gene that is less than 90% covered. Here a hit that passes the
- * identity slider but not the coverage slider is reported as partial, down
- * to PARTIAL_MIN_COVERAGE of the gene, so a truncated or thinly covered
- * gene is visible instead of silently absent.
+ * The defaults, 90% identity and 90% coverage, call the genes ResFinder's
+ * read mode calls: it keeps hits with Template_Identity ≥ 90%, which needs
+ * at least 90% coverage. Below the coverage threshold a hit is listed as a
+ * partial gene, down to PARTIAL_MIN_COVERAGE of the gene, so a truncated or
+ * thinly covered gene is visible instead of silently absent. On short reads,
+ * a gene that is all there is less than 90% covered only below about 2×
+ * depth (uncovered share ≈ e^-depth), so the band between 60% and 90%
+ * coverage is mostly truncated genes and split alleles, which is why the
+ * coverage default is not lower.
  */
 
-export const DEFAULT_THRESHOLDS = { identity: 0.9, coverage: 0.6 };
+export const DEFAULT_THRESHOLDS = { identity: 0.9, coverage: 0.9 };
 
 // Hits below the coverage slider that still cover at least this fraction
 // of the gene are listed as partial.
@@ -46,13 +52,14 @@ export function normaliseThresholds(th) {
   };
 }
 
-// The -ID (percent) KMA runs with: just under the lowest Template_Identity a
-// listed hit can have. -ID 0 means something else to KMA (it prints every
-// template with zero identity), so the floor is at least 1.
-export function kmaIdentityFloor(th) {
-  const t = normaliseThresholds(th);
-  const lowestCoverage = Math.min(t.coverage, PARTIAL_MIN_COVERAGE);
-  return Math.max(1, Math.floor(pct(lowestCoverage * t.identity)) - 1);
+// The -ID (percent) KMA runs with: its own default, 1. -ID 0 means something
+// else to KMA (it prints every template with zero identity). Every
+// template KMA assigns reads to is reported, so the browser can pool the
+// reads of sister alleles and test what is missing from the reads.
+export const KMA_ID_FLOOR = 1;
+
+export function kmaIdentityFloor() {
+  return KMA_ID_FLOOR;
 }
 
 export const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
@@ -78,7 +85,7 @@ export function splitRows(rows, th) {
   return out;
 }
 
-// "identity ≥ 90% over the aligned part, coverage ≥ 60% of the gene"
+// "identity ≥ 90% over the aligned part, coverage ≥ 90% of the gene"
 export function describeThresholds(th) {
   const t = normaliseThresholds(th);
   return `identity ≥ ${Math.round(pct(t.identity))}% over the aligned part, coverage ≥ ${Math.round(pct(t.coverage))}% of the gene`;

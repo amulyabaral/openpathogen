@@ -135,6 +135,7 @@ const LINK_CLASS = {
   'streptogramin antibiotic': (n, c) => c.has(SGA) || c.has(SGB),
   'rifamycin antibiotic': (n, c) => c.has(RIF),
   'lincosamide antibiotic': (n, c) => c.has(LIN),
+  'macrolide antibiotic': (n, c) => c.has(MAC),
   'oxazolidinone antibiotic': (n, c) => c.has(OXA),
   'tetracycline': (n) => /^(tetracycline|doxycycline|minocycline|chlortetracycline|oxytetracycline)$/.test(n),
   'pleuromutilin': (n, c) => c.has(PLE),

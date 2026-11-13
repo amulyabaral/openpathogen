@@ -1,6 +1,6 @@
 /* comprehensive.js — configurable pipeline: optional fastp QC/trim →
  * optional human read removal (Deacon) → KMA against any subset of
- * ResFinder + CARD + VFDB.
+ * ResFinder + CARD + VFDB, and PointFinder's references for the species.
  *
  * Reuses the production runAnalysis() path verbatim for each database, so
  * the pipeline can never drift from what a single-database run does.
@@ -10,11 +10,16 @@ import { runAnalysis } from './wasm-runtime.js';
 import { ENGINE } from './engine.js';
 import { removeHumanReads, HOST_INDEX, HOST_THRESHOLDS } from './host.js';
 import { normaliseThresholds } from './thresholds.js';
+import {
+  pointfinderSpecies, loadPointFinderManifest, loadCatalogue, pointfinderDatabase, evaluatePointFinder,
+} from './pointfinder.js';
 
 export const COMPREHENSIVE_DBS = [
   { key: 'resfinder', label: 'Resistance genes (ResFinder)', kind: 'amr' },
   { key: 'card_homolog', label: 'Resistance homologs (CARD)', kind: 'amr' },
   { key: 'vfdb_core', label: 'Virulence factors (VFDB)', kind: 'vf' },
+  // One index per species, chosen at run time from the species.
+  { key: 'pointfinder', label: 'Point mutations (PointFinder)', kind: 'point' },
 ];
 
 export function runFastp(files, { paired, nanopore, options } = {}) {
@@ -45,12 +50,21 @@ export function setFastpLog(fn) { fastpLog = fn; }
 
 export async function runComprehensive(files, readType, {
   onStep, onProgress, log, runQc = true, removeHost = false, sampleName = 'sample', dbKeys, thresholds, fastpOptions,
+  species = '',
 } = {}) {
   const paired = readType === 'paired';
   const nanopore = readType === 'nanopore';
-  const dbs = dbKeys?.length
+  // PointFinder runs only for a species it covers.
+  const pointFolder = pointfinderSpecies(species);
+  const dbs = (dbKeys?.length
     ? COMPREHENSIVE_DBS.filter(d => dbKeys.includes(d.key))
-    : COMPREHENSIVE_DBS;
+    : COMPREHENSIVE_DBS.filter(d => d.key !== 'pointfinder'))
+    .filter(d => d.key !== 'pointfinder' || pointFolder);
+  if (dbKeys?.includes('pointfinder') && !pointFolder) {
+    log?.(species
+      ? `PointFinder has no references for ${species}; point mutations were not checked.`
+      : 'No species was given, so point mutations were not checked (PointFinder needs the species).', 'info');
+  }
   const total = dbs.length + (runQc ? 1 : 0) + (removeHost ? 1 : 0);
   let stepNo = 0;
   const step = (text) => onStep?.(++stepNo, total, text);
@@ -114,10 +128,43 @@ export async function runComprehensive(files, readType, {
   const results = [];
   for (const db of dbs) {
     step(db.label + '…');
-    results.push(await runAnalysis(analysisFiles, db.key, config));
+    if (db.key === 'pointfinder') {
+      results.push(await runPointFinder(analysisFiles, pointFolder, config, log));
+    } else {
+      results.push(await runAnalysis(analysisFiles, db.key, config));
+    }
   }
   onStep?.(total, total, 'Done');
   return { qc, qcHtml, qcReads, host, usedFiltered: analysisFiles !== files, results };
+}
+
+// KMA against the species' PointFinder references, then every curated
+// position read from the result (pointfinder.js). A failure, a download
+// that does not come (offline) included, fails this step only: the result
+// carries the error, and the report and tables say so.
+async function runPointFinder(files, folder, config, log) {
+  let manifest, catalogue, r;
+  try {
+    [manifest, catalogue] = await Promise.all([loadPointFinderManifest(), loadCatalogue(folder)]);
+    r = await runAnalysis(files, pointfinderDatabase(folder, manifest), config);
+  } catch (err) {
+    log?.(`PointFinder could not run: ${err.message}`, 'warn');
+    return { database: 'pointfinder', dbLabel: 'PointFinder', exitCode: -1, files: {}, resTable: null, pointfinderError: err.message, pointfinderVersion: manifest?.version || '' };
+  }
+  r.pointfinderVersion = manifest.version;
+  r.pointfinderCommit = manifest.commit;
+  if (r.exitCode === 0) {
+    try {
+      r.pointfinder = evaluatePointFinder(r, catalogue, { nanopore: config.nanopore });
+      const ev = r.pointfinder;
+      log?.(`PointFinder (${ev.label}): ${ev.found.length} known mutation${ev.found.length === 1 ? '' : 's'} found; `
+        + `${ev.read} of ${ev.screened} curated positions read.`, 'ok');
+    } catch (err) {
+      r.pointfinderError = err.message;
+      log?.(`Reading the PointFinder positions failed: ${err.message}`, 'warn');
+    }
+  }
+  return r;
 }
 
 // deacon_summary.json in the ZIP: the fields of `deacon filter --summary`

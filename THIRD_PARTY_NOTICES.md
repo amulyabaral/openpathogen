@@ -66,6 +66,28 @@ in published work.
   VFDB: a reference database for bacterial virulence factors. *Nucleic Acids
   Research* 33(S1): D325–D328.
 
+### PointFinder 4.1.1 — Apache License 2.0
+- Source: https://bitbucket.org/genomicepidemiology/pointfinder_db (commit
+  44ce624, 2025-11-05; VERSION 4.1.1)
+- Chromosomal point mutations associated with resistance, and the wild-type
+  reference genes they are found in, for ten species and genera.
+  openpathogen ships, per species, a KMA index of the reference genes and a
+  catalogue of the mutation table (scripts/build-pointfinder.py), which
+  corrects four rows (a template name typo and three positions given in
+  E. coli numbering) and leaves out the rows whose reference does not match
+  the template; both are listed in each catalogue. The Klebsiella gyrA and
+  parC templates (E. coli sequences in pointfinder_db) are replaced by the
+  genes of K. pneumoniae ATCC 13883 from NCBI RefSeq (GCF_000742135.1;
+  scripts/pointfinder-references.fsa).
+- Rows are marked where NCBI AMRFinderPlus curates the same mutation, from
+  the AMRFinderPlus database's AMRProt-mutation.tsv (2026-08-07.1; a US
+  government work, public domain): https://github.com/ncbi/amr
+- Cite: Zankari E., Allesøe R., Joensen K.G., Cavaco L.M., Lund O.,
+  Aarestrup F.M. (2017). PointFinder: a novel web tool for WGS-based
+  detection of antimicrobial resistance associated with chromosomal point
+  mutations in bacterial pathogens. *Journal of Antimicrobial Chemotherapy*
+  72(10): 2764–2768.
+
 The KMA indexes built from these databases are derived works and carry the
 same terms, including the copies served from the Zenodo index record
 (https://zenodo.org/records/22102687). The record's own licence field does

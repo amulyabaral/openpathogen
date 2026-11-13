@@ -43,6 +43,23 @@ export function parseVfdbTemplate(template) {
   };
 }
 
+// A short name for one database sequence, for prose:
+//   ResFinder  blaZ_79_KU607584 (the template name, gene_allele_accession)
+//   CARD       msrA (X52085.1)
+//   VFDB       essC (VFG002409)
+export function alleleLabel(template, db) {
+  if (db === 'card_homolog') {
+    const bars = String(template || '').split('|');
+    const { name } = parseCardTemplate(template);
+    return bars.length >= 6 && bars[1] ? `${name} (${bars[1]})` : name;
+  }
+  if (db === 'vfdb_core') {
+    const v = parseVfdbTemplate(template);
+    return v ? `${v.gene} (${v.id})` : String(template || '');
+  }
+  return String(template || '');
+}
+
 // The gene name a database uses for a template.
 export function geneName(template, db) {
   if (db === 'card_homolog') return parseCardTemplate(template).name;
@@ -78,11 +95,20 @@ export const CLASS_GROUPS = [
 const GROUP_BY_TOKEN = new Map();
 for (const g of CLASS_GROUPS) for (const t of g.tokens) GROUP_BY_TOKEN.set(t, g);
 
+// Classes only PointFinder's M. tuberculosis table uses, named for their
+// drug.
+const EXTRA_LABELS = {
+  'isonicotinic acid hydrazide': 'Isoniazid', 'synthetic derivative of nicotinamide': 'Pyrazinamide',
+  thioamide: 'Ethionamide', 'salicylic acid - anti-folate': 'Para-aminosalicylic acid',
+  diarylquinoline: 'Bedaquiline', iminophenazine: 'Clofazimine', 'analog of d-alanine': 'D-cycloserine',
+  'xdr-tb': 'Extensively drug-resistant TB',
+};
+
 // The report group of a class token. Classes outside the list (ionophores…)
 // get a group of their own, which is never listed as "not found".
 export function classGroup(token) {
   return GROUP_BY_TOKEN.get(token)
-    || { key: token, label: token.charAt(0).toUpperCase() + token.slice(1), tokens: [token], extra: true };
+    || { key: token, label: EXTRA_LABELS[token] || token.charAt(0).toUpperCase() + token.slice(1), tokens: [token], extra: true };
 }
 
 // Antibiotics in ResFinder's phenotype table that the CABBAGE class table

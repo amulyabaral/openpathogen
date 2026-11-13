@@ -2,7 +2,7 @@ import { getCachedDBFile, cacheDBFile, deleteDBFile } from './db.js';
 import { fetchAssetWithProgress } from './assets.js';
 import { verifyPinned } from './integrity.js';
 import { ENGINE, ENGINE_FORCED, threadCount } from './engine.js';
-import { kmaIdentityFloor, normaliseThresholds } from './thresholds.js';
+import { kmaIdentityFloor } from './thresholds.js';
 
 const DATABASES = {
   resfinder: {
@@ -97,8 +97,11 @@ async function fetchDbFile(db, ext, onProgress) {
   try {
     data = await fetchAssetWithProgress(path, 0, onProgress);
   } catch (err) {
-    if (!INDEX_BASE) throw err;
-    data = await fetchAssetWithProgress(INDEX_BASE + DB_SHORT_NAMES[db.shortName] + ext + '/content', 0, onProgress);
+    // Only the indexes in the Zenodo record have a copy there; the others
+    // (PointFinder's, a few hundred KB) are served by this site alone.
+    const remote = DB_SHORT_NAMES[db.shortName];
+    if (!INDEX_BASE || !remote || db.sameOriginOnly) throw err;
+    data = await fetchAssetWithProgress(INDEX_BASE + remote + ext + '/content', 0, onProgress);
   }
   // Verify before use: a mismatch throws and the file is never cached, so a
   // corrupted or tampered download cannot change gene calls.
@@ -107,13 +110,19 @@ async function fetchDbFile(db, ext, onProgress) {
   return { data, fromCache: false };
 }
 
+// The files of an index as stored: a descriptor may list extensions it
+// ships gzipped (db.gzipped: PointFinder's hash tables, nearly all empty);
+// those are fetched, pinned and cached as <file>.gz and unpacked here.
+const storedExt = (db, ext) => (db.gzipped?.includes(ext) ? ext + '.gz' : ext);
+
 async function loadDatabaseBytes(db) {
   log(`Loading ${db.displayName}...`, 'info');
   const bytesByExt = {};
   for (const ext of DB_FILES) {
-    const { data, fromCache } = await fetchDbFile(db, ext);
-    log(`${db.prefix + ext}${fromCache ? ' (cached)' : ` (${formatBytes(data.length)})`}`, 'info');
-    bytesByExt[ext] = data;
+    const stored = storedExt(db, ext);
+    const { data, fromCache } = await fetchDbFile(db, stored);
+    log(`${db.prefix + stored}${fromCache ? ' (cached)' : ` (${formatBytes(data.length)})`}`, 'info');
+    bytesByExt[ext] = stored === ext ? data : globalThis.fflate.gunzipSync(data);
   }
   log(`${db.displayName} ready`, 'ok');
   return bytesByExt;
@@ -121,11 +130,19 @@ async function loadDatabaseBytes(db) {
 
 // ── Index preloading (↓ buttons) ──
 
+// A database by its key (resfinder, card_homolog, vfdb_core) or as a
+// descriptor { prefix, shortName, displayName, sameOriginOnly } for indexes
+// chosen at run time (PointFinder's, one per species: pointfinder.js).
+function databaseOf(keyOrDb) {
+  if (keyOrDb && typeof keyOrDb === 'object') return keyOrDb;
+  return DATABASES[keyOrDb] || null;
+}
+
 export async function isDatabaseCached(key) {
-  const db = DATABASES[key];
+  const db = databaseOf(key);
   if (!db) return false;
   for (const ext of DB_FILES) {
-    const data = await getCachedDBFile(db.prefix + ext);
+    const data = await getCachedDBFile(db.prefix + storedExt(db, ext));
     if (!data || !data.length) return false;
   }
   return true;
@@ -135,13 +152,14 @@ export async function isDatabaseCached(key) {
 // called with (bytesGot, bytesTotal) of the file currently transferring, and
 // onFile with (index, total) as each file starts.
 export async function preloadDatabase(key, onProgress, onFile) {
-  const db = DATABASES[key];
+  const db = databaseOf(key);
   if (!db) throw new Error(`Unknown database: ${key}`);
   log(`Preloading ${db.displayName}...`, 'info');
   for (let i = 0; i < DB_FILES.length; i++) {
     onFile?.(i, DB_FILES.length);
-    const { data, fromCache } = await fetchDbFile(db, DB_FILES[i], onProgress);
-    log(`${db.prefix + DB_FILES[i]}${fromCache ? ' (cached)' : ` (${formatBytes(data.length)})`}`, 'info');
+    const stored = storedExt(db, DB_FILES[i]);
+    const { data, fromCache } = await fetchDbFile(db, stored, onProgress);
+    log(`${db.prefix + stored}${fromCache ? ' (cached)' : ` (${formatBytes(data.length)})`}`, 'info');
   }
   log(`${db.displayName} preloaded`, 'ok');
 }
@@ -153,7 +171,7 @@ export async function runAnalysis(files, dbKey, config = {}) {
     throw new Error('Cross-origin isolation is not active. Reload the page. The multithreaded engine requires it.');
   }
 
-  const db = DATABASES[dbKey] || DATABASES.resfinder;
+  const db = databaseOf(dbKey) || DATABASES.resfinder;
   const dbBytes = await loadDatabaseBytes(db);
 
   const sample = detectSample(files);
@@ -235,6 +253,7 @@ export async function runAnalysis(files, dbKey, config = {}) {
     sampleType: sample.type,
     database: db.shortName,
     dbLabel: db.displayName,
+    species: db.species || null, // the species of a per-species index (PointFinder)
     exitCode: result.exitCode,
     elapsed,
     command: `kma ${argsStr}`,
@@ -324,16 +343,19 @@ function sanitizePathToken(value) {
 }
 
 // KMA runs as ResFinder's read mode runs it (cgecore's CGEFinder.kma, as
-// run_resfinder.py calls it): -e 1.0 -apm p -cge -1t1, plus -bcNano -mp 20
-// -ont -md 5 for Nanopore reads. Only -ID differs: KMA keeps every template
-// down to a floor derived from the sliders, and the sliders themselves are
-// applied in the browser (thresholds.js) to Query_Identity and
-// Template_Coverage, so the coverage slider really is gene coverage.
-// (-mrc, which earlier builds set from that slider, is a per-read filter.)
+// run_resfinder.py 4.x calls it): -e 1.0 -apm p -cge -1t1, plus -ont -md 5
+// for Nanopore reads. -bcNano and -mp 20 stay in front of -ont from earlier
+// builds; in KMA 1.5.1 they change nothing (-ont sets the Nanopore base
+// caller itself, and 20 is the default -mp). Only -ID differs: KMA's own default of 1,
+// so every template it assigns reads to is reported, and the sliders are
+// applied in the browser (thresholds.js, hits.js) to Query_Identity and
+// Template_Coverage, so the coverage slider really is gene coverage. The
+// command does not depend on the sliders. (-mrc, which earlier builds set
+// from the coverage slider, is a per-read filter.)
 function buildConfigArgs(config) {
   const args = ['-e', '1.0', '-apm', 'p', '-cge', '-1t1'];
   if (config.nanopore) args.push('-bcNano', '-mp', '20', '-ont', '-md', '5');
-  args.push('-ID', String(kmaIdentityFloor(normaliseThresholds(config.thresholds))));
+  args.push('-ID', String(kmaIdentityFloor()));
   return args;
 }
 

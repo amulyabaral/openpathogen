@@ -13,7 +13,11 @@ import {
 } from './comprehensive.js';
 import { HOST_INDEX, isHostIndexCached, loadHostIndex } from './host.js';
 import { hamronizeResults, toTsv as hamronizedTsv, toJson as hamronizedJson } from './hamronize.js';
-import { classifyResult } from './hits.js';
+import { classifyResult, partialPhrase } from './hits.js';
+import {
+  pointfinderSpecies, loadPointFinderManifest, loadCatalogue, pointfinderDatabase, POINTFINDER_COVERS,
+  pointfinderTsv, pointfinderPositionsTsv, POINT_CALL, listedAt,
+} from './pointfinder.js';
 
 // This build, for the hAMRonization analysis_software_version: the ?v= of
 // app.js in index.html, bumped with every deploy.
@@ -29,7 +33,7 @@ const state = {
   running: false,
   species: '',        // the species box; filled in for the example and ENA runs
   speciesAuto: false, // true while that text came from run metadata, not the user
-  selectedDbs: new Set(['resfinder']),
+  selectedDbs: new Set(['resfinder', 'pointfinder']),
   dbCached: new Set(), // indexes already in the IndexedDB cache
   removeHost: false,   // remove human reads (Deacon) before the databases
   hostCached: false,   // the human index is in the IndexedDB cache
@@ -542,6 +546,7 @@ function setupSpecies() {
   input.addEventListener('input', () => {
     state.species = input.value.trim();
     state.speciesAuto = false;
+    pointfinderSpeciesChanged();
   });
   input.addEventListener('change', () => current?.report?.setSpecies(state.species));
   loadAssociations()
@@ -557,6 +562,7 @@ function setSpecies(text, auto) {
   state.speciesAuto = !!(auto && text);
   const input = document.getElementById('species');
   if (input) input.value = state.species;
+  pointfinderSpeciesChanged();
 }
 
 function forgetAutoSpecies() {
@@ -590,7 +596,8 @@ function updateRunButton() {
   const haveR1 = !!state.files.r1;
   const needR2 = state.readType === 'paired';
   const haveR2 = !!state.files.r2;
-  const haveDb = selectedDbs().length > 0;
+  // PointFinder on its own needs a species it covers.
+  const haveDb = selectedDbs().some(k => k !== 'pointfinder') || (state.selectedDbs.has('pointfinder') && !!pointfinderSpecies(state.species));
   const ready = state.wasmReady && !state.running && haveDb && haveR1 && (!needR2 || haveR2);
   btn.disabled = !ready;
   btn.title = haveDb ? '' : 'Select at least one database.';
@@ -716,7 +723,24 @@ const DB_META = {
   resfinder: { short: 'ResFinder', size: '12 MB' },
   card_homolog: { short: 'CARD', size: '24 MB' },
   vfdb_core: { short: 'VFDB', size: '78 MB' },
+  pointfinder: { short: 'PointFinder', size: '' }, // per species: pointfinderSize()
 };
+
+// PointFinder has one index per species (pointfinder.js). Its row follows
+// the species box: it asks for a species, says when PointFinder has none for
+// it, or shows that species' download. Download and cache state are kept
+// per species, under 'pointfinder:<folder>'.
+let pointManifest = null;
+const pointKey = () => { const f = pointfinderSpecies(state.species); return f ? 'pointfinder:' + f : null; };
+function pointfinderSize(folder) {
+  const sp = pointManifest?.species?.find(s => s.folder === folder);
+  return sp ? `${(sp.bytes / 1048576).toFixed(1)} MB` : '';
+}
+function pointfinderSpeciesChanged() {
+  renderDbUi();
+  updateRunButton();
+  if (state.selectedDbs.has('pointfinder')) downloadDb('pointfinder');
+}
 
 const DB_DOWNLOADS = new Map(); // db key → { pct, promise } while in flight
 
@@ -733,10 +757,14 @@ function setupDbSelect() {
   // away — before any reads are loaded, so it's ready when they are.
   (async () => {
     for (const db of COMPREHENSIVE_DBS) {
+      if (db.key === 'pointfinder') continue; // per species, when one is given
       try { if (await isDatabaseCached(db.key)) state.dbCached.add(db.key); } catch (_) { /* cache check is best-effort */ }
     }
     renderDbUi();
   })();
+  loadPointFinderManifest()
+    .then((m) => { pointManifest = m; renderDbUi(); })
+    .catch((err) => term.push('PointFinder files unavailable: ' + err.message, 'warn'));
   downloadDb('resfinder');
 }
 
@@ -756,6 +784,7 @@ function toggleDb(key, on) {
 // Zenodo serves the files without content-length, so byte-percentage is
 // usually unavailable — progress then falls back to file i/n counts.
 function downloadDb(key) {
+  if (key === 'pointfinder') { downloadPointFinder(); return; }
   if (DB_DOWNLOADS.has(key) || state.dbCached.has(key)) return;
   const meta = DB_META[key];
   const entry = { pct: null, file: null, promise: null };
@@ -784,11 +813,39 @@ function downloadDb(key) {
   renderDbUi();
 }
 
+// The species' PointFinder index and catalogue, cached like the others.
+async function downloadPointFinder() {
+  const folder = pointfinderSpecies(state.species);
+  const key = pointKey();
+  if (!folder || DB_DOWNLOADS.has(key) || state.dbCached.has(key)) return;
+  const entry = { pct: null, file: null, promise: null };
+  DB_DOWNLOADS.set(key, entry);
+  renderDbUi();
+  entry.promise = (async () => {
+    const manifest = pointManifest || (pointManifest = await loadPointFinderManifest());
+    const db = pointfinderDatabase(folder, manifest);
+    if (await isDatabaseCached(db).catch(() => false)) {
+      await loadCatalogue(folder);
+      return;
+    }
+    term.push(`Downloading the PointFinder references for ${db.displayName.replace(/^PointFinder [^ ]* /, '')} (${pointfinderSize(folder)})…`, 'info');
+    await preloadDatabase(db,
+      (got, total) => { entry.pct = total ? Math.min(100, Math.round(100 * got / total)) : null; renderDbUi(); },
+      (i, n) => { entry.file = n > 1 ? `${i + 1}/${n}` : null; renderDbUi(); });
+    await loadCatalogue(folder);
+    term.push('PointFinder references cached.', 'ok');
+  })()
+    .then(() => { state.dbCached.add(key); })
+    .catch((err) => { term.push(`Could not download the PointFinder references: ${err.message}`, 'error'); })
+    .finally(() => { DB_DOWNLOADS.delete(key); renderDbUi(); });
+}
+
 const dlStatus = (dl) => dl.pct != null ? `↓ ${dl.pct}%` : dl.file != null ? `↓ ${dl.file}` : '↓ …';
 
 // Repaint each database row's size / progress / cached state.
 function renderDbUi() {
   document.querySelectorAll('#db-list .db-check').forEach((row) => {
+    if (row.dataset.db === 'pointfinder') { renderPointFinderRow(row); return; }
     const key = row.dataset.db;
     const dl = DB_DOWNLOADS.get(key);
     const sizeEl = row.querySelector('.db-size');
@@ -802,6 +859,24 @@ function renderDbUi() {
       if (bar) bar.style.width = '0';
     }
   });
+}
+
+function renderPointFinderRow(row) {
+  const folder = pointfinderSpecies(state.species);
+  const key = pointKey();
+  const dl = key ? DB_DOWNLOADS.get(key) : null;
+  const sizeEl = row.querySelector('.db-size');
+  const bar = row.querySelector('.db-prog > i');
+  row.classList.toggle('downloading', !!dl);
+  row.classList.toggle('db-waiting', !folder);
+  row.title = folder ? '' : `PointFinder has references for ${POINTFINDER_COVERS}. Enter one of them as the species.`;
+  if (sizeEl) {
+    sizeEl.textContent = dl ? dlStatus(dl)
+      : !state.species ? 'needs the species'
+        : !folder ? 'not for this species'
+          : pointfinderSize(folder) + (state.dbCached.has(key) ? ' · cached' : '');
+  }
+  if (bar) bar.style.width = dl ? (dl.pct || 3) + '%' : '0';
 }
 
 // ── Human reads ──
@@ -1009,7 +1084,7 @@ async function doRun() {
     // A database selected moments ago may still be downloading; wait for it
     // instead of fetching the same index a second time in parallel.
     const removeHost = state.removeHost;
-    const pending = selectedDbs().map(k => DB_DOWNLOADS.get(k)).filter(Boolean);
+    const pending = selectedDbs().map(k => DB_DOWNLOADS.get(k === 'pointfinder' ? pointKey() : k)).filter(Boolean);
     if (removeHost && hostDownload) pending.push(hostDownload);
     if (pending.length) {
       if (statusText) statusText.textContent = 'Waiting for the database download to finish…';
@@ -1018,7 +1093,7 @@ async function doRun() {
     }
     const inputNames = files.map(f => f.name);
     const result = await runComprehensive(files, state.readType, {
-      onStep, runQc, removeHost, dbKeys: selectedDbs(), thresholds, fastpOptions,
+      onStep, runQc, removeHost, dbKeys: selectedDbs(), thresholds, fastpOptions, species: state.species,
       sampleName: sampleNameOf(inputNames),
       log: (msg, level) => term.push(msg, level),
       // Progress within a step shows in the status line only, not the log.
@@ -1026,6 +1101,7 @@ async function doRun() {
     });
     renderComprehensive(result, {
       runQc, removeHost, thresholds, readType: state.readType, inputNames,
+      pointRun: { selected: selectedDbs().includes('pointfinder'), species: state.species },
     });
     document.getElementById('workspace').classList.add('show-results');
     window.scrollTo(0, 0); // stacked (phone) layout: results start at the top
@@ -1050,7 +1126,7 @@ function sampleNameOf(names) {
 // Results page: the report first, then one collapsible gene table per
 // database, the fastp card and the Deacon card. The toolbar prints the page,
 // downloads the hAMRonized TSV, or downloads the raw output as a ZIP.
-function renderComprehensive({ qc, qcHtml, qcReads, host, results }, { runQc, removeHost, thresholds, readType, inputNames }) {
+function renderComprehensive({ qc, qcHtml, qcReads, host, results }, { runQc, removeHost, thresholds, readType, inputNames, pointRun }) {
   const area = document.getElementById('results');
   const metrics = summariseQc(qc);
   const verdict = qcVerdict(metrics);
@@ -1059,18 +1135,19 @@ function renderComprehensive({ qc, qcHtml, qcReads, host, results }, { runQc, re
 
   let html = '<div id="report"></div><div class="evidence">';
 
-  // ── One gene table per database: called hits, then partial ones. Hits
-  //    below the thresholds, and partial hits shadowed by a called allele of
-  //    the same gene, stay in the ZIP (hits.js). ──
+  // ── One gene table per database: called genes, then partial ones. Hits
+  //    below the thresholds, and the sister alleles a gene's reads were
+  //    pooled from, stay in the ZIP (hits.js). ──
   results.forEach((r, i) => {
+    if (r.database === 'pointfinder') { html += renderPointSection(r, i); return; }
     const ok = r.exitCode === 0;
-    const { called, partial, below, shadowed } = classifyResult(r, thresholds);
+    const { called, partial, below, merged } = classifyResult(r, thresholds);
     const name = DB_NAMES[r.database] || r.dbLabel || r.database;
     const meta = !ok ? 'failed'
       : `${called.length} gene${called.length === 1 ? '' : 's'}${partial.length ? `, ${partial.length} partial` : ''}`;
-    const hidden = below + shadowed;
+    const hidden = below + merged;
     const belowNote = hidden
-      ? `<p class="opt-note">${hidden} more hit${hidden === 1 ? '' : 's'} ${hidden === 1 ? 'is' : 'are'} in the ZIP (${esc(r.database)}.res) and not shown: below the thresholds${shadowed ? ', or a partial match to an allele of a gene called above' : ''}.</p>`
+      ? `<p class="opt-note">${hidden} more hit${hidden === 1 ? '' : 's'} ${hidden === 1 ? 'is' : 'are'} in the ZIP (${esc(r.database)}.res) and not shown: below the thresholds${merged ? ', or sister alleles of a gene above that some of its reads went to' : ''}.</p>`
       : '';
     html += `
     <details class="ev comp-section" data-section="${i}"${ok ? '' : ' open'}>
@@ -1165,6 +1242,10 @@ function renderComprehensive({ qc, qcHtml, qcReads, host, results }, { runQc, re
     for (const [ext, info] of Object.entries(r.files || {})) {
       dlFiles[`${r.database}${ext}`] = info;
     }
+    if (r.pointfinder) {
+      dlFiles['pointfinder_results.tsv'] = { data: pointfinderTsv(r.pointfinder), binary: false };
+      dlFiles['pointfinder_positions.tsv'] = { data: pointfinderPositionsTsv(r.pointfinder), binary: false };
+    }
   }
   // Every called gene in the hAMRonization format, for combining with other
   // tools' results (hamronize summarize).
@@ -1213,14 +1294,17 @@ function renderComprehensive({ qc, qcHtml, qcReads, host, results }, { runQc, re
   // ── The report ──
   const openHit = (section, template) => {
     const r = results[section];
-    const row = r?.resTable ? parseResFile(r.resTable).rows.find(x => x.Template === template) : null;
-    if (row) openGeneViewer(row, r);
+    if (r?.database === 'pointfinder') { openPointGene(r, template); return; }
+    const gene = r ? geneOf(r, thresholds, template) : null;
+    const row = gene?.row || (r?.resTable ? parseResFile(r.resTable).rows.find(x => x.Template === template) : null);
+    if (row) openGeneViewer(row, r, gene);
   };
   current.report = mountReport(area.querySelector('#report'), {
     results, readType, inputNames, sampleName, thresholds,
     qc: runQc ? { tone: verdict.tone, text: verdict.text } : null,
     host: removeHost ? { stats: host?.stats || null, error: host?.error || null } : null,
     species: state.species,
+    pointRun,
     onSpeciesChange: (text) => setSpecies(text, false),
     onCsv: (name, text) => {
       if (text == null) delete dlFiles[name];
@@ -1236,7 +1320,8 @@ function renderComprehensive({ qc, qcHtml, qcReads, host, results }, { runQc, re
     if (!section) return;
     bindSort(section);
     bindColumnResize(section);
-    bindGeneViewer(section, r);
+    if (r.database === 'pointfinder') bindTemplateViewer(section, r);
+    else bindGeneViewer(section, r, thresholds);
   });
 
   // Keep each table to its top 5 rows until the user asks for more. Sorting
@@ -1328,21 +1413,124 @@ function setRunning(on) {
 
 // ── Gene tables ──
 
+// The gene (hits.js) a template of a result belongs to, as the template
+// that names it or one whose reads were pooled into it.
+function geneOf(result, thresholds, template) {
+  const { called, partial } = classifyResult(result, thresholds);
+  const genes = [...called, ...partial];
+  return genes.find(g => g.template === template) || genes.find(g => g.members.some(m => m.template === template)) || null;
+}
+
 // Open the per-gene viewer when a row is clicked, or when its gene button
 // is activated from the keyboard (the button's click bubbles to the row).
-function bindGeneViewer(area, result) {
+function bindGeneViewer(area, result, thresholds) {
   if (!result.resTable) return;
-  const { rows } = parseResFile(result.resTable);
-  const byTemplate = new Map(rows.map(r => [r.Template, r]));
   area.querySelectorAll('tr[data-template]').forEach(tr => {
     tr.addEventListener('click', (e) => {
       if (e.target.closest('a')) return; // links (CARD ARO) open on their own
       // Don't hijack a text selection drag.
       if (window.getSelection && String(window.getSelection()).length) return;
-      const row = byTemplate.get(tr.dataset.template);
-      if (row) openGeneViewer(row, result);
+      const gene = geneOf(result, thresholds, tr.dataset.template);
+      if (gene) openGeneViewer(gene.row, result, gene);
     });
   });
+}
+
+// PointFinder's rows open the gene viewer on the template itself, with what
+// PointFinder read on it.
+function bindTemplateViewer(area, result) {
+  if (!result.resTable) return;
+  area.querySelectorAll('tr[data-template]').forEach(tr => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('a')) return;
+      if (window.getSelection && String(window.getSelection()).length) return;
+      openPointGene(result, tr.dataset.template);
+    });
+  });
+}
+
+function openPointGene(result, template) {
+  const row = result.resTable ? parseResFile(result.resTable).rows.find(r => String(r.Template).trim() === template) : null;
+  if (row) openGeneViewer(row, result, null, pointGene(result.pointfinder, template));
+}
+
+// A PointFinder gene for the viewer: its listed positions, how many were
+// read, and the mutations on it (on any copy, for an rRNA gene).
+function pointGene(ev, template) {
+  const g = ev?.genes.find(x => x.template === template);
+  if (!g) return null;
+  const on = (m) => (g.rna ? m.locus === g.locus : m.template === template);
+  const mutations = [...ev.found, ...ev.needs, ...ev.minority, ...ev.caution, ...ev.otherChanges].filter(on);
+  return { rows: g.rows, determined: g.determined, rna: g.rna, mutations };
+}
+
+// The PointFinder table: one row per gene of the species, with how many of
+// its curated positions the reads cover and the mutations found, genes with
+// mutations first. Each mutation's antibiotics are its tooltip.
+function renderPointSection(r, i) {
+  const ev = r.pointfinder;
+  const ok = r.exitCode === 0 && !!ev;
+  const name = `PointFinder ${r.pointfinderVersion || ''}`.trim() + (ev ? ` · ${ev.label}` : '');
+  const n = ev ? ev.found.length : 0;
+  const meta = !ok ? 'failed'
+    : `${n} mutation${n === 1 ? '' : 's'}${ev.minority.length ? `, ${ev.minority.length} in some reads` : ''}${ev.otherChanges.length ? `, ${ev.otherChanges.length} not in the table` : ''}${ev.caution.length ? `, ${ev.caution.length} to use with caution` : ''}`;
+  let body;
+  if (!ok) {
+    body = `<p class="empty">This step failed${r.pointfinderError ? ` (${esc(r.pointfinderError)})` : ''}. Open the Logs panel below for details.</p>`;
+  } else {
+    const byGene = new Map();
+    for (const m of [...ev.found, ...ev.needs, ...ev.minority, ...ev.caution, ...ev.otherChanges]) {
+      if (!byGene.has(m.template)) byGene.set(m.template, []);
+      byGene.get(m.template).push(m);
+    }
+    const rank = (g) => (g.found ? 0 : byGene.has(g.template) ? 1 : g.read ? 2 : 3);
+    const genes = [...ev.genes].sort((a, b) => rank(a) - rank(b) || a.gene.localeCompare(b.gene));
+    let rows = '';
+    for (const g of genes) {
+      const muts = (byGene.get(g.template) || []).map(m => {
+        const label = m.protein || m.name;
+        const tag = m.status === 'minority' ? ` (${Math.round(100 * m.share)}% of reads)`
+          : m.status === 'needs' ? ' (alone)' : m.status === 'caution' ? ' (use with caution)'
+            : m.status === 'other' ? ' (not in the table)' : '';
+        const title = `${m.name}${m.codon ? ` (${m.codon})` : ''}: ${m.status === 'other' ? 'at a codon listed for ' : ''}${m.antibiotics.join(', ').toLowerCase() || 'no antibiotic listed'}`
+          + ` · ${m.depth}× depth${m.share != null ? `, ${Math.round(100 * m.share)}% of reads` : ''}`
+          + (m.status === 'needs' ? `. PointFinder counts it only with ${m.requires}.` : '')
+          + (m.status === 'caution' ? '. PointFinder lists it as under development, and AMRFinderPlus does not curate it.' : '')
+          + (m.status === 'other' ? `. PointFinder lists ${listedAt(m)} at this codon, not this change.` : '');
+        return `<span class="pf-mut${m.status === 'found' ? '' : ' pf-mut-' + m.status}" title="${esc(title)}">${esc(label + tag)}</span>`;
+      }).join(', ');
+      const plain = (byGene.get(g.template) || []).map(m => m.protein || m.name).join(', ');
+      const notFound = g.read ? '' : ' <span class="rep-tag rep-tag-muted" title="Under 80% of the gene is identical to the reads, or no reads reach it: its positions are not read">not found</span>';
+      rows += `<tr data-template="${esc(g.template)}"${g.read ? '' : ' class="row-partial"'}>`
+        + `<td data-k="gene" data-v="${esc(g.gene)}"><button type="button" class="gv-link" title="${esc(g.template)}">${esc(g.gene)}</button>${notFound}</td>`
+        + `<td data-k="id" data-v="${g.identity ?? ''}">${fmtNum(g.identity, 1, '%')}</td>`
+        + `<td data-k="cov" data-v="${g.coverage ?? ''}">${fmtNum(g.coverage, 1, '%')}</td>`
+        + `<td data-k="depth" data-v="${g.depth ?? ''}">${fmtNum(g.depth, 1, '×')}</td>`
+        + `<td data-k="pos" data-v="${g.rows ? g.determined / g.rows : ''}">${g.rows ? `${g.determined} of ${g.rows}` : ''}</td>`
+        + `<td data-k="mut" data-v="${esc(plain)}" class="fn">${muts || '<span class="muted">none</span>'}</td></tr>`;
+    }
+    const cols = [
+      { key: 'gene', label: 'Gene', width: 150 },
+      { key: 'id', label: 'Identity', width: 90, title: 'Identical bases over the whole reference (KMA Template_Identity), the measure of PointFinder’s 80% gene filter' },
+      { key: 'cov', label: 'Coverage', width: 96, title: 'Part of the reference the reads cover (KMA Template_Coverage)' },
+      { key: 'depth', label: 'Depth', width: 80 },
+      { key: 'pos', label: 'Positions read', width: 116, title: 'Curated positions of the gene with enough reads to tell the base' },
+      { key: 'mut', label: 'Mutations' },
+    ];
+    const head = cols.map(c => `<th data-key="${c.key}" aria-sort="none"${c.title ? ` title="${esc(c.title)}"` : ''}><button type="button" class="th-sort">${esc(c.label)}<span class="arr" aria-hidden="true">↕</span></button></th>`).join('');
+    const sm = ev.speciesMatch;
+    const speciesNote = sm.total && sm.matched < sm.total / 2
+      ? `<p class="qc-verdict qc-warn">Only ${sm.matched} of the ${sm.total} ${esc(ev.label)} genes PointFinder holds are in the reads. Check that the species is right, or that the sample holds enough of it; mutations are only read on genes that are there.</p>`
+      : '';
+    body = speciesNote
+      + `<div class="table-wrap"><table class="res-table"><colgroup>${cols.map(c => (c.width ? `<col style="width:${c.width}px">` : '<col>')).join('')}</colgroup><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`
+      + `<p class="opt-note">${ev.read} of the ${ev.screened} positions in PointFinder’s ${esc(ev.label)} table could be read: a position counts as read with at least ${ev.nanopore ? POINT_CALL.minDepth.nanopore : POINT_CALL.minDepth.illumina} reads, most of them agreeing. A mutation in some of the reads is listed with its share. The ZIP has the mutations (pointfinder_results.tsv) and every position as read, with the reason when it could not be (pointfinder_positions.tsv).</p>`;
+  }
+  return `
+    <details class="ev comp-section ev-point" data-section="${i}"${ok ? '' : ' open'}>
+      <summary><span class="ev-name">Point mutations · ${esc(name)}</span><span class="ev-meta${ok ? '' : ' ev-failed'}">${meta}</span></summary>
+      <div class="ev-body">${body}</div>
+    </details>`;
 }
 
 const fmtNum = (v, digits, suffix) => {
@@ -1350,12 +1538,13 @@ const fmtNum = (v, digits, suffix) => {
   return Number.isFinite(x) ? x.toFixed(digits) + suffix : '';
 };
 
-// Gene | what it does | identity | coverage | depth. Called hits first, then
-// partial ones (identity reached, coverage not). Identity is over the
-// aligned part of the gene (KMA's Query_Identity), coverage over its full
-// length. A called gene whose alignment has a missing or poorly aligned
-// stretch is marked "check alignment". The raw template name is the gene
-// button's tooltip and the gene viewer's subtitle.
+// Gene | what it does | identity | coverage | depth. Called genes first,
+// then partial ones. Identity is over the aligned part of the gene (KMA's
+// Query_Identity), coverage over its full length; for a gene whose reads KMA
+// divided between sister alleles, both are of the pooled reads against the
+// closest allele (hits.js). A called gene with a warning from its reads is
+// marked "check alignment". The raw template name is the gene button's
+// tooltip and the gene viewer's subtitle.
 function renderResTable(called, partial, result) {
   const db = result.database;
   const cols = [
@@ -1382,19 +1571,24 @@ function renderResTable(called, partial, result) {
       const url = cardAroUrl(hit.aro);
       if (url) fn += ` · <a href="${url}" target="_blank" rel="noopener">ARO:${esc(hit.aro)}</a>`;
     }
-    const warning = status === 'called' ? h.warning : null;
+    const warnings = status === 'called' ? (h.warnings || []) : [];
+    const phrase = partialPhrase(h);
     const partialTitle = h.by === 'alignment'
-      ? `Only part of the gene aligns well: ${Math.round(100 * (h.check?.goodFraction || 0))}% at ${(100 * (h.check?.goodIdentity || 0)).toFixed(1)}% identity. ${h.warning || ''}`
-      : 'Found at the identity threshold, but covering less of the gene than the coverage threshold asks';
+      ? `Only part of the gene aligns well: ${Math.round(100 * (h.check?.goodFraction || 0))}% at ${(100 * (h.check?.goodIdentity || 0)).toFixed(1)}% identity${phrase ? `; ${phrase}` : ''}.`
+      : h.by === 'stop' || h.by === 'frameshift' ? `The whole gene is there, but ${phrase}. ${h.warnings?.[0] || ''}`
+        : `Found at the identity threshold, but covering less of the gene than the coverage threshold asks${phrase ? `: ${phrase}` : ''}.`;
+    const tag = h.by === 'stop' ? 'stop codon' : h.by === 'frameshift' ? 'frameshift' : 'partial';
+    const pooledFrom = h.pooled && h.members?.length > 1 ? ` (with the reads of ${h.members.slice(1).map(m => m.template).join(', ')})` : '';
     const marks = (status === 'partial'
-      ? ` <span class="rep-tag rep-tag-muted" title="${esc(partialTitle)}">partial</span>` : '')
-      + (warning ? ` <span class="rep-tag rep-tag-warn" title="${esc(warning)} Open the gene to see the alignment.">check alignment</span>` : '');
+      ? ` <span class="rep-tag rep-tag-muted" title="${esc(partialTitle)}">${tag}</span>` : '')
+      + (warnings.length ? ` <span class="rep-tag rep-tag-warn" title="${esc(warnings.join(' '))} Open the gene to see its reads.">check alignment</span>` : '');
+    const n = h.numbers || {};
     const cells = {
-      gene: [hit.name, `<button type="button" class="gv-link" title="${esc(row.Template)}">${esc(hit.name)}</button>${marks}`],
+      gene: [hit.name, `<button type="button" class="gv-link" title="${esc(row.Template + pooledFrom)}">${esc(hit.name)}</button>${marks}`],
       fn: [describeFunction(hit), fn],
-      id: [row.Query_Identity, fmtNum(row.Query_Identity, 1, '%')],
-      cov: [row.Template_Coverage, fmtNum(row.Template_Coverage, 1, '%')],
-      depth: [row.Depth, fmtNum(row.Depth, 1, '×')],
+      id: [n.identity, fmtNum(n.identity, 1, '%')],
+      cov: [n.coverage, fmtNum(n.coverage, 1, '%')],
+      depth: [n.depth, fmtNum(n.depth, 1, '×')],
     };
     html += `<tr data-template="${esc(row.Template || '')}"${status === 'partial' ? ' class="row-partial"' : ''}>`;
     for (const c of cols) {
